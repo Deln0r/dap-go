@@ -10,6 +10,9 @@ type (
 	CountNonce       = count.Nonce
 	CountPrepShare   = count.PrepShare
 	CountPrepState   = count.PrepState
+	CountPrepMessage = count.PrepMessage
+	CountOutShare    = count.OutShare
+	CountAggShare    = count.AggShare
 	CountVerifyKey   = count.VerifyKey
 )
 
@@ -36,6 +39,22 @@ func (c *Count) Shard(measurement bool, nonce *CountNonce, rand []byte,
 	return c.inner.Shard(measurement, nonce, rand)
 }
 
+// DecodeInputShare reconstructs a typed input share from its serialized bytes
+// for the aggregator with the given index (0 = Leader, 1 = Helper). circl needs
+// the VDAF parameters to know the share's shape, which this method supplies from
+// the Count instance, so a Helper holding only the decrypted wire bytes can run
+// PrepInit. For Prio3Count the public share is empty, so callers pass a nil
+// CountPublicShare to PrepInit.
+func (c *Count) DecodeInputShare(aggID uint8, b []byte) (CountInputShare, error) {
+	var is CountInputShare
+	p := c.inner.Params()
+	is.New(&p, uint(aggID))
+	if err := is.UnmarshalBinary(b); err != nil {
+		return is, err
+	}
+	return is, nil
+}
+
 // PrepInit runs the first preparation step on the receiving aggregator.
 func (c *Count) PrepInit(
 	verifyKey *CountVerifyKey,
@@ -45,4 +64,33 @@ func (c *Count) PrepInit(
 	inputShare CountInputShare,
 ) (*CountPrepState, *CountPrepShare, error) {
 	return c.inner.PrepInit(verifyKey, nonce, aggID, publicShare, inputShare)
+}
+
+// PrepSharesToPrep combines the prep shares from all aggregators into a
+// single prep message. In a DAP deployment this is run by the party in
+// the prep-leader role; it is role-agnostic in the underlying VDAF.
+func (c *Count) PrepSharesToPrep(prepShares []CountPrepShare) (*CountPrepMessage, error) {
+	return c.inner.PrepSharesToPrep(prepShares)
+}
+
+// PrepNext consumes the combined prep message and advances the local prep
+// state. For single-round Prio3Count it yields the aggregator's output share.
+func (c *Count) PrepNext(state *CountPrepState, msg *CountPrepMessage) (*CountOutShare, error) {
+	return c.inner.PrepNext(state, msg)
+}
+
+// AggregateInit returns a fresh zero aggregate share for a batch.
+func (c *Count) AggregateInit() CountAggShare {
+	return c.inner.AggregateInit()
+}
+
+// AggregateUpdate folds an output share into a running aggregate share.
+func (c *Count) AggregateUpdate(aggShare *CountAggShare, outShare *CountOutShare) {
+	c.inner.AggregateUpdate(aggShare, outShare)
+}
+
+// Unshard combines the aggregate shares from all aggregators into the final
+// aggregate result over numMeas measurements. This is the Collector-side step.
+func (c *Count) Unshard(aggShares []CountAggShare, numMeas uint) (*uint64, error) {
+	return c.inner.Unshard(aggShares, numMeas)
 }
