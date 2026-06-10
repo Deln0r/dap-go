@@ -30,8 +30,8 @@ Target spec: [draft-ietf-ppm-dap-17](https://datatracker.ietf.org/doc/draft-ietf
 | Prio3Count wrapper (`pkg/prio3`) | Verified | Shard / PrepInit / PrepSharesToPrep / PrepNext / Aggregate / Unshard, byte-exact vs 3 CFRG vectors |
 | Wire codec (`pkg/dap/wire`) | Verified | DAP-17 §4.1, §4.4, §4.5 types in TLS presentation language; round-trip + negative tests |
 | HPKE layer (`internal/hpke`) | Verified | RFC 9180 Seal/Open over cloudflare/circl; tamper / wrong-key / wrong-AAD negatives |
-| Helper aggregation-init (`pkg/dap/helper`) | Partial | Synchronous PUT init for Prio3Count: decrypt, decode, Helper prep, response. In-memory store, idempotent replay |
-| Helper continuation (POST) | Not started | Returns 501; single-round Prio3Count reaches its output share via the combine step (Leader), deferred with the continue endpoint |
+| Helper aggregation-init (`pkg/dap/helper`) | Verified | Synchronous PUT init for Prio3Count with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. In-memory store, idempotent replay |
+| Helper continuation (POST) | Not started | Returns 501. Single-round VDAFs never reach continuation (DAP-17 §4.5.3); needed for 2-round VDAFs like Poplar1 |
 | Prio3Sum / Histogram | Not started | Need the joint-randomness public-share path |
 | Leader role | Not started | v1.0 |
 | Collection / aggregate-share | Not started | v1.0 |
@@ -40,12 +40,13 @@ Target spec: [draft-ietf-ppm-dap-17](https://datatracker.ietf.org/doc/draft-ietf
 
 ## Conformance and interop
 
-Two gaps stand between "passes our tests" and "interoperates with Janus", both deferred to v1.0:
+The ping-pong message framing of [draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/) §5.7.1 is implemented: the Helper consumes a framed initialize message and answers with a framed finish message, byte-identical envelope across vdaf-14 and vdaf-18. The remaining gaps to a cross-implementation run, all targeted next:
 
-- **Ping-pong framing.** `cloudflare/circl` v1.6.3 exposes the lower-level VDAF preparation primitives, not the ping-pong message framing of [draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/) §5.8 that DAP-17 puts on the wire. v0.1 carries raw circl prep-share bytes in the response payload. This is internally consistent and CFRG-verified, but it is not byte-compatible with Janus or Daphne yet.
-- **Context binding.** DAP-17 binds the VDAF application context as `"dap-17" || task_id`; the CFRG fixtures use a bare context string. The byte-exact checks therefore prove intra-implementation VDAF correctness, not a cross-implementation wire-conformance vector.
+- **VDAF draft contents.** `cloudflare/circl` v1.6.3 implements draft-irtf-cfrg-vdaf-14, whose XOF domain separation embeds the draft version byte. DAP-17/18 reference vdaf-18, so the verifier-share contents (not the envelope) differ between the two. Cross-implementation interop needs a vdaf-18 Prio3.
+- **Protocol version targeting.** No Janus build ever spoke dap-17 (their version history goes dap-16 then dap-18). The practical interop peer is Janus main speaking dap-18, so the wire layer and the version-bound HPKE info / VDAF context strings (`"dap-18" || task_id`) retarget to draft-18.
+- **Context binding.** The CFRG fixtures use a bare context string, so today's byte-exact checks prove intra-implementation VDAF correctness, not a cross-implementation conformance vector.
 
-A cross-implementation interop image against the [PPM WG interop test design](https://datatracker.ietf.org/doc/draft-dcook-ppm-dap-interop-test-design/) lands once both are addressed.
+A docker-compose cross-run against a pinned Janus build is the next milestone; the published [PPM WG interop test design](https://datatracker.ietf.org/doc/draft-dcook-ppm-dap-interop-test-design/) and its 2023 runner predate the current drafts, so Janus's in-tree interop binaries serve as the de-facto harness.
 
 ## Layout
 

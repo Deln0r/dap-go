@@ -47,6 +47,15 @@ func (h *hexBytes) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func mustHexHelper(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatalf("hex %q: %v", s, err)
+	}
+	return b
+}
+
 func loadVector(t *testing.T) countVector {
 	t.Helper()
 	data, err := os.ReadFile("../../../testdata/fixtures/vdaf/Prio3Count_0.json")
@@ -61,15 +70,13 @@ func loadVector(t *testing.T) countVector {
 }
 
 // syntheticReport bundles a synthetic AggregationJobInitReq carrying one report
-// whose Helper input share derives from the CFRG Prio3Count_0 fixture, plus the
-// pieces a test needs to play the Leader (combine + finalize).
+// whose Helper input share derives from the CFRG Prio3Count_0 fixture. The
+// VerifyInit payload carries the Leader's verifier share wrapped in a framed
+// ping-pong initialize message, exactly as a DAP Leader would send it.
 type syntheticReport struct {
-	ReqBytes    []byte
-	Task        *Task
-	ReportID    wire.ReportID
-	LeaderShare prio3.CountPrepShare
-	HelperShare prio3.CountPrepShare
-	Count       *prio3.Count
+	ReqBytes []byte
+	Task     *Task
+	ReportID wire.ReportID
 }
 
 func synthetic(t *testing.T) syntheticReport {
@@ -92,10 +99,6 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 
 	_, lShare, err := c.PrepInit(&vk, &nonce, 0, pub, inShares[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, hShare, err := c.PrepInit(&vk, &nonce, helperAggregatorID, pub, inShares[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +132,13 @@ func synthetic(t *testing.T) syntheticReport {
 	if err != nil {
 		t.Fatal(err)
 	}
+	framedInit, err := (&wire.PingPongMessage{
+		Type:          wire.PingPongInitialize,
+		VerifierShare: leaderShareBytes,
+	}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
 	helperInputBytes, err := inShares[1].MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +164,7 @@ func synthetic(t *testing.T) syntheticReport {
 				PublicShare:         pubShareBytes,
 				EncryptedInputShare: wire.HpkeCiphertext{ConfigID: configID, Enc: enc, Payload: ct},
 			},
-			Payload: leaderShareBytes, // Leader's prep message; v0.1 Helper does not consume it
+			Payload: framedInit,
 		}},
 	}
 	reqBytes, err := req.MarshalBinary()
@@ -163,12 +173,9 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 
 	return syntheticReport{
-		ReqBytes:    reqBytes,
-		Task:        task,
-		ReportID:    reportID,
-		LeaderShare: *lShare,
-		HelperShare: *hShare,
-		Count:       c,
+		ReqBytes: reqBytes,
+		Task:     task,
+		ReportID: reportID,
 	}
 }
 
@@ -213,21 +220,20 @@ func TestHelper_Init_HTTPRoundTrip(t *testing.T) {
 	if vr.Type != wire.VerifyRespContinue {
 		t.Fatalf("type = %d, want continue", vr.Type)
 	}
-	refShare, err := s.HelperShare.MarshalBinary()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(vr.Payload, refShare) {
-		t.Fatalf("helper prep share mismatch\n  want %s\n  got  %s",
-			hex.EncodeToString(refShare), hex.EncodeToString(vr.Payload))
+	// For Prio3Count the Helper's outbound is a framed ping-pong finish
+	// message with an empty verifier message: exactly 0x02 || uint32(0).
+	if !bytes.Equal(vr.Payload, mustHexHelper(t, "0200000000")) {
+		t.Fatalf("payload = %s, want framed finish 0200000000", hex.EncodeToString(vr.Payload))
 	}
 }
 
 // TestHelper_Init_OutShareByteExact drives the synthetic report through the PUT
-// handler, then plays the Leader to combine the prep shares and finalize, and
-// asserts the Helper's output share equals the CFRG Prio3Count_0 reference
-// out-share (1f96fa976d56026a). This is intra-impl VDAF correctness, not a
-// DAP-17 wire-conformance vector (see package doc on the ping-pong framing gap).
+// handler and asserts the Helper committed an output share byte-equal to the
+// CFRG Prio3Count_0 reference out-share (1f96fa976d56026a). In the ping-pong
+// topology the Helper finishes at init for a single-round VDAF, so the out
+// share is read straight from the store. This is intra-impl VDAF correctness
+// against the vdaf-14 vectors, not a cross-impl conformance check (see package
+// doc on the vdaf-14 vs vdaf-18 gap).
 func TestHelper_Init_OutShareByteExact(t *testing.T) {
 	s := synthetic(t)
 	store := NewMemStore(s.Task)
@@ -244,25 +250,79 @@ func TestHelper_Init_OutShareByteExact(t *testing.T) {
 		t.Fatal("job not stored")
 	}
 	ra := job.ReportAggs[0]
-	if ra.State != StateContinuePending || ra.PrepState == nil {
-		t.Fatalf("unexpected report state %v / nil prep state", ra.State)
+	if ra.State != StateFinished || ra.OutShare == nil {
+		t.Fatalf("unexpected report state %v / nil out share", ra.State)
 	}
-
-	prepMsg, err := s.Count.PrepSharesToPrep([]prio3.CountPrepShare{s.LeaderShare, s.HelperShare})
-	if err != nil {
-		t.Fatal(err)
-	}
-	outShare, err := s.Count.PrepNext(ra.PrepState, prepMsg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := outShare.MarshalBinary()
+	got, err := ra.OutShare.MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
 	const wantOutShare = "1f96fa976d56026a"
 	if hex.EncodeToString(got) != wantOutShare {
 		t.Fatalf("helper out-share = %s, want %s", hex.EncodeToString(got), wantOutShare)
+	}
+}
+
+// TestHelper_Init_RejectsNonInitializeMessage sends a framed finish message at
+// the initialization step; ping_pong_helper_init only accepts initialize.
+func TestHelper_Init_RejectsNonInitializeMessage(t *testing.T) {
+	s := synthetic(t)
+
+	var req wire.AggregationJobInitReq
+	if err := req.UnmarshalBinary(s.ReqBytes); err != nil {
+		t.Fatal(err)
+	}
+	badPayload, err := (&wire.PingPongMessage{Type: wire.PingPongFinish}).MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.VerifyInits[0].Payload = badPayload
+	badReq, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler(NewMemStore(s.Task))
+	rec := putInit(t, h, s.Task, [16]byte{}, badReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with rejecting verify_resp", rec.Code)
+	}
+	var resp wire.AggregationJobResp
+	if err := resp.UnmarshalBinary(rec.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.VerifyResps) != 1 || resp.VerifyResps[0].Type != wire.VerifyRespReject ||
+		resp.VerifyResps[0].Error != wire.ReportErrorInvalidMessage {
+		t.Fatalf("want reject/invalid_message, got %+v", resp.VerifyResps)
+	}
+}
+
+// TestHelper_Init_RejectsGarbageFraming sends an unparseable payload.
+func TestHelper_Init_RejectsGarbageFraming(t *testing.T) {
+	s := synthetic(t)
+
+	var req wire.AggregationJobInitReq
+	if err := req.UnmarshalBinary(s.ReqBytes); err != nil {
+		t.Fatal(err)
+	}
+	req.VerifyInits[0].Payload = []byte{0xFF, 0x01, 0x02}
+	badReq, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHandler(NewMemStore(s.Task))
+	rec := putInit(t, h, s.Task, [16]byte{}, badReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with rejecting verify_resp", rec.Code)
+	}
+	var resp wire.AggregationJobResp
+	if err := resp.UnmarshalBinary(rec.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.VerifyResps) != 1 || resp.VerifyResps[0].Type != wire.VerifyRespReject ||
+		resp.VerifyResps[0].Error != wire.ReportErrorInvalidMessage {
+		t.Fatalf("want reject/invalid_message, got %+v", resp.VerifyResps)
 	}
 }
 

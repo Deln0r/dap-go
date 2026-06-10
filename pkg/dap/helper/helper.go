@@ -1,20 +1,26 @@
 // Package helper implements the DAP-17 Helper-role aggregator for the
 // aggregation sub-protocol (draft-ietf-ppm-dap-17 §4.5).
 //
-// Scope (v0.1): synchronous Helper-role aggregation-job initialization for
-// Prio3Count over two aggregators. The PUT init endpoint decrypts each report's
-// input share, runs the Helper's VDAF preparation step, and returns the
-// Helper's outbound prep share. The continue and async-poll endpoints, the
-// Leader role, the collection path, taskprov, durable storage, and timestamp
-// validation are deferred to v1.0; see the package README notes and
+// Scope: synchronous Helper-role aggregation-job initialization for
+// Prio3Count over two aggregators, with the VDAF ping-pong message framing of
+// draft-irtf-cfrg-vdaf §5.7.1. The PUT init endpoint decrypts each report's
+// input share, decodes the Leader's framed initialize message, runs the
+// helper transition (own verify-init, combine both verifier shares, finish),
+// commits the output share, and returns a framed finish message. Prio3Count
+// is single-round, so every report reaches a terminal state at init and the
+// continue endpoint is never used (DAP-17 §4.5.3). The continue and
+// async-poll endpoints, the Leader role, the collection path, taskprov,
+// durable storage, and timestamp validation are deferred; see the README and
 // (non-)AGENTS.md.
 //
-// Conformance caveat: circl v1.6.3 exposes the lower-level VDAF preparation
-// primitives, not the ping-pong message framing of draft-irtf-cfrg-vdaf §5.8
-// that DAP-17 puts on the wire. v0.1 carries raw circl PrepShare bytes in the
-// VerifyResp payload. This is internally consistent and verified against the
-// CFRG Prio3Count test vectors, but it is NOT yet byte-compatible with Janus or
-// Daphne. Ping-pong outer framing is a v1.0 prerequisite for cross-impl interop.
+// Conformance caveat: the ping-pong envelope is byte-identical between
+// vdaf-14 and vdaf-18, but the verifier-share contents are not. circl v1.6.3
+// implements vdaf-14, whose XOF domain separation embeds the draft version
+// byte, while DAP-17 normatively references vdaf-18 and no Janus build ever
+// spoke dap-17 at all (their version history skips from dap-16 to dap-18).
+// Cross-implementation interop therefore requires a vdaf-18 Prio3 and a
+// dap-18 retarget; until then the tests here prove intra-implementation
+// correctness against the CFRG vdaf-14 vectors.
 package helper
 
 import (
@@ -65,18 +71,18 @@ type Task struct {
 	HPKEPrivateKey []byte
 }
 
-// ReportAggState is the per-report aggregation state. Prio3Count is single
-// round, but circl's lower-level API reaches the output share only after the
-// combine + finalize steps (the Leader's job), so after init a report rests in
-// StateContinuePending until v1.0 implements the continue endpoint.
+// ReportAggState is the per-report aggregation state. In the ping-pong
+// topology the Helper holds both verifier shares at init (its own plus the
+// Leader's from the initialize message), so a single-round VDAF reaches a
+// terminal state immediately: the output share is committed and a framed
+// finish message goes back to the Leader (vdaf §5.7.1 FinishedWithOutbound).
 type ReportAggState uint8
 
 const (
-	// StateContinuePending: init succeeded, the Helper emitted its prep share
-	// and holds its prep state, awaiting the Leader's combined prep message.
-	StateContinuePending ReportAggState = 0
+	// StateFinished: init succeeded and the output share is committed.
+	StateFinished ReportAggState = 1
 	// StateFailed: the report was rejected during init.
-	StateFailed ReportAggState = 1
+	StateFailed ReportAggState = 2
 )
 
 // ReportAggregation is the Helper's per-report state row.
@@ -84,7 +90,7 @@ type ReportAggregation struct {
 	ReportID       wire.ReportID
 	Ord            uint64
 	State          ReportAggState
-	PrepState      *prio3.CountPrepState
+	OutShare       *prio3.CountOutShare
 	LastVerifyResp wire.VerifyResp
 	ReportError    wire.ReportError
 }
@@ -160,15 +166,49 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 		return reject(wire.ReportErrorInvalidMessage)
 	}
 
+	// The Leader's payload is a framed ping-pong message; at the
+	// initialization step only an initialize message is legal
+	// (vdaf §5.7.1 ping_pong_helper_init).
+	var inbound wire.PingPongMessage
+	if err := inbound.UnmarshalBinary(vi.Payload); err != nil {
+		return reject(wire.ReportErrorInvalidMessage)
+	}
+	if inbound.Type != wire.PingPongInitialize {
+		return reject(wire.ReportErrorInvalidMessage)
+	}
+	leaderShare, err := c.DecodePrepShare(inbound.VerifierShare)
+	if err != nil {
+		return reject(wire.ReportErrorInvalidMessage)
+	}
+
 	var nonce prio3.CountNonce
 	copy(nonce[:], reportID[:])
 	var publicShare prio3.CountPublicShare // empty for Prio3Count
 
-	prepState, prepShare, err := c.PrepInit(&task.VerifyKey, &nonce, helperAggregatorID, publicShare, inputShare)
+	prepState, helperShare, err := c.PrepInit(&task.VerifyKey, &nonce, helperAggregatorID, publicShare, inputShare)
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
-	prepShareBytes, err := prepShare.MarshalBinary()
+
+	// Helper transition: combine the verifier shares (Leader's first), then
+	// finish. A combine failure is a failed VDAF verification.
+	prepMsg, err := c.PrepSharesToPrep([]prio3.CountPrepShare{leaderShare, *helperShare})
+	if err != nil {
+		return reject(wire.ReportErrorVdafVerifyError)
+	}
+	outShare, err := c.PrepNext(prepState, prepMsg)
+	if err != nil {
+		return reject(wire.ReportErrorVdafVerifyError)
+	}
+
+	// Single-round VDAF: FinishedWithOutbound. The outbound is a framed
+	// finish message carrying the verifier message (empty for Prio3Count).
+	prepMsgBytes, err := prepMsg.MarshalBinary()
+	if err != nil {
+		return reject(wire.ReportErrorVdafVerifyError)
+	}
+	outbound := wire.PingPongMessage{Type: wire.PingPongFinish, VerifierMessage: prepMsgBytes}
+	outboundBytes, err := outbound.MarshalBinary()
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
@@ -176,13 +216,13 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 	vr := wire.VerifyResp{
 		ReportID: reportID,
 		Type:     wire.VerifyRespContinue,
-		Payload:  prepShareBytes,
+		Payload:  outboundBytes,
 	}
 	return vr, &ReportAggregation{
 		ReportID:       reportID,
 		Ord:            ord,
-		State:          StateContinuePending,
-		PrepState:      prepState,
+		State:          StateFinished,
+		OutShare:       outShare,
 		LastVerifyResp: vr,
 	}
 }

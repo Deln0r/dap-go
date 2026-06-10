@@ -55,6 +55,20 @@ func (c *Count) DecodeInputShare(aggID uint8, b []byte) (CountInputShare, error)
 	return is, nil
 }
 
+// DecodePrepShare reconstructs a typed prep share from its serialized bytes,
+// using the Count instance's VDAF parameters for shaping. A Helper uses this
+// to decode the Leader's verifier share carried in a ping-pong initialize
+// message.
+func (c *Count) DecodePrepShare(b []byte) (CountPrepShare, error) {
+	var ps CountPrepShare
+	p := c.inner.Params()
+	ps.New(&p)
+	if err := ps.UnmarshalBinary(b); err != nil {
+		return ps, err
+	}
+	return ps, nil
+}
+
 // PrepInit runs the first preparation step on the receiving aggregator.
 func (c *Count) PrepInit(
 	verifyKey *CountVerifyKey,
