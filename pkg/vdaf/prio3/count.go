@@ -14,14 +14,16 @@ import (
 	"github.com/Deln0r/dap-go/pkg/vdaf/xof"
 )
 
+// algorithmID is the Prio3Count VDAF identifier (Table 19).
+const algorithmID uint32 = 1
+
 // Protocol constants (Table 6, Table 10).
 const (
-	algorithmID   uint32 = 1 // Prio3Count
-	SeedSize             = 32
-	NonceSize            = 16
-	VerifyKeySize        = 32
-	rounds               = 1
-	proofs               = 1
+	SeedSize      = 32
+	NonceSize     = 16
+	VerifyKeySize = 32
+	rounds        = 1
+	proofs        = 1
 )
 
 // Errors.
