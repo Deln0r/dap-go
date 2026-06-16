@@ -65,11 +65,15 @@ func TestVerifyInit_RejectsEmptyPayload(t *testing.T) {
 }
 
 func TestAggregationJobInitReq_ImplicitVector(t *testing.T) {
+	var bid BatchID
+	for i := range bid {
+		bid[i] = byte(i)
+	}
 	req := AggregationJobInitReq{
-		AggParam: nil,
-		PartBatchSelector: PartialBatchSelector{
-			BatchMode: BatchModeLeaderSelected,
-			Config:    nil,
+		VerificationKeyID: 7,
+		AggParam:          nil,
+		Extensions: []AggregationJobExtension{
+			LeaderSelectedBatchIDExtension(bid),
 		},
 		VerifyInits: []VerifyInit{
 			{ReportShare: sampleReportShare(t, 0x01), Payload: mustHex(t, "aa")},
@@ -85,11 +89,17 @@ func TestAggregationJobInitReq_ImplicitVector(t *testing.T) {
 	if err := dec.UnmarshalBinary(enc); err != nil {
 		t.Fatal(err)
 	}
+	if dec.VerificationKeyID != 7 {
+		t.Fatalf("verification_key_id mismatch: got %d", dec.VerificationKeyID)
+	}
 	if len(dec.VerifyInits) != 3 {
 		t.Fatalf("want 3 verify_inits, got %d", len(dec.VerifyInits))
 	}
-	if dec.PartBatchSelector.BatchMode != BatchModeLeaderSelected {
-		t.Fatalf("batch mode mismatch")
+	if len(dec.Extensions) != 1 {
+		t.Fatalf("want 1 extension, got %d", len(dec.Extensions))
+	}
+	if gotBID, ok := dec.Extensions[0].BatchID(); !ok || gotBID != bid {
+		t.Fatalf("leader-selected batch id round-trip mismatch")
 	}
 	for i := range req.VerifyInits {
 		if dec.VerifyInits[i].ReportShare.ReportMetadata.ReportID !=

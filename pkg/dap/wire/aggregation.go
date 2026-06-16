@@ -55,13 +55,6 @@ const (
 	ReportErrorOutdatedConfig      ReportError = 11
 )
 
-// PartialBatchSelector carries the batch mode and its mode-dependent config
-// in an AggregationJobInitReq (DAP-17 §4.5.2.1).
-type PartialBatchSelector struct {
-	BatchMode BatchMode
-	Config    []byte
-}
-
 // ReportShare is a single aggregator's view of a report inside the aggregation
 // sub-protocol: the public metadata, the public share, and this aggregator's
 // encrypted input share (DAP-17 §4.5.2.1).
@@ -79,12 +72,16 @@ type VerifyInit struct {
 	Payload     []byte
 }
 
-// AggregationJobInitReq is the body of the PUT that creates an aggregation job
-// (DAP-17 §4.5.2.1). VerifyInits has no on-wire length prefix; it consumes the
-// remainder of the message after AggParam and PartBatchSelector.
+// AggregationJobInitReq is the body that creates an aggregation job
+// (DAP-18 §4.5.3.1). Draft-18 reshaped it: verification_key_id was prepended,
+// PartialBatchSelector was removed, and a typed AggregationJobExtension vector
+// took its place (the leader-selected batch ID now travels as an extension,
+// §5.2.2). VerifyInits has no on-wire length prefix; it consumes the remainder
+// of the message after VerificationKeyID, AggParam and Extensions.
 type AggregationJobInitReq struct {
+	VerificationKeyID uint8
 	AggParam          []byte
-	PartBatchSelector PartialBatchSelector
+	Extensions        []AggregationJobExtension
 	VerifyInits       []VerifyInit
 }
 
@@ -112,33 +109,6 @@ type InputShareAad struct {
 	ReportMetadata ReportMetadata
 	PublicShare    []byte
 }
-
-// ---- PartialBatchSelector ----
-
-func (p *PartialBatchSelector) Marshal(b *cryptobyte.Builder) error {
-	b.AddUint8(uint8(p.BatchMode))
-	b.AddUint16LengthPrefixed(func(child *cryptobyte.Builder) {
-		child.AddBytes(p.Config)
-	})
-	return nil
-}
-
-func (p *PartialBatchSelector) Unmarshal(s *cryptobyte.String) bool {
-	var mode uint8
-	if !s.ReadUint8(&mode) {
-		return false
-	}
-	var cfg cryptobyte.String
-	if !s.ReadUint16LengthPrefixed(&cfg) {
-		return false
-	}
-	p.BatchMode = BatchMode(mode)
-	p.Config = cloneBytes(cfg)
-	return true
-}
-
-func (p *PartialBatchSelector) MarshalBinary() ([]byte, error) { return marshal(p) }
-func (p *PartialBatchSelector) UnmarshalBinary(b []byte) error { return unmarshalAll(p, b) }
 
 // ---- ReportShare ----
 
@@ -200,12 +170,11 @@ func (v *VerifyInit) UnmarshalBinary(b []byte) error { return unmarshalAll(v, b)
 // ---- AggregationJobInitReq ----
 
 func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
+	b.AddUint8(a.VerificationKeyID)
 	b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
 		child.AddBytes(a.AggParam)
 	})
-	if err := a.PartBatchSelector.Marshal(b); err != nil {
-		return err
-	}
+	marshalAggJobExtVec(b, a.Extensions)
 	// VerifyInits: implicit-length vector, no outer prefix.
 	for i := range a.VerifyInits {
 		if err := a.VerifyInits[i].Marshal(b); err != nil {
@@ -216,14 +185,25 @@ func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
 }
 
 func (a *AggregationJobInitReq) Unmarshal(s *cryptobyte.String) bool {
+	// verify_inits_length is implicit: it is the remainder after the
+	// length-prefixed agg_param and extensions fields. Because cryptobyte
+	// consumes positionally, the loop below is correct without computing it by
+	// hand. (Note: the DAP-18 §4.5.3.1 prose describing verify_inits_length
+	// omits the leading verification_key_id byte; a literal length subtraction
+	// from those words would be off by one. Positional decode sidesteps that.)
+	if !s.ReadUint8(&a.VerificationKeyID) {
+		return false
+	}
 	var aggParam cryptobyte.String
 	if !readUint32LengthPrefixed(s, &aggParam) {
 		return false
 	}
 	a.AggParam = cloneBytes(aggParam)
-	if !a.PartBatchSelector.Unmarshal(s) {
+	exts, ok := unmarshalAggJobExtVec(s)
+	if !ok {
 		return false
 	}
+	a.Extensions = exts
 	a.VerifyInits = nil
 	for !s.Empty() {
 		var vi VerifyInit

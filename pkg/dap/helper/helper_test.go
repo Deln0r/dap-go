@@ -157,7 +157,6 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 
 	req := wire.AggregationJobInitReq{
-		PartBatchSelector: wire.PartialBatchSelector{BatchMode: wire.BatchModeLeaderSelected},
 		VerifyInits: []wire.VerifyInit{{
 			ReportShare: wire.ReportShare{
 				ReportMetadata:      meta,
