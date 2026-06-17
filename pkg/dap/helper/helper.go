@@ -1,26 +1,28 @@
-// Package helper implements the DAP-17 Helper-role aggregator for the
-// aggregation sub-protocol (draft-ietf-ppm-dap-17 §4.5).
+// Package helper implements the DAP-18 Helper-role aggregator for the
+// aggregation sub-protocol (draft-ietf-ppm-dap-18 §4.5).
 //
 // Scope: synchronous Helper-role aggregation-job initialization for
 // Prio3Count over two aggregators, with the VDAF ping-pong message framing of
-// draft-irtf-cfrg-vdaf §5.7.1. The PUT init endpoint decrypts each report's
+// draft-irtf-cfrg-vdaf §5.7.1. The init endpoint decrypts each report's
 // input share, decodes the Leader's framed initialize message, runs the
 // helper transition (own verify-init, combine both verifier shares, finish),
 // commits the output share, and returns a framed finish message. Prio3Count
 // is single-round, so every report reaches a terminal state at init and the
-// continue endpoint is never used (DAP-17 §4.5.3). The continue and
+// continue endpoint is never used (DAP-18 §4.5.4). The continue and
 // async-poll endpoints, the Leader role, the collection path, taskprov,
 // durable storage, and timestamp validation are deferred; see the README and
 // (non-)AGENTS.md.
 //
-// Conformance caveat: the ping-pong envelope is byte-identical between
-// vdaf-14 and vdaf-18, but the verifier-share contents are not. circl v1.6.3
-// implements vdaf-14, whose XOF domain separation embeds the draft version
-// byte, while DAP-17 normatively references vdaf-18 and no Janus build ever
-// spoke dap-17 at all (their version history skips from dap-16 to dap-18).
-// Cross-implementation interop therefore requires a vdaf-18 Prio3 and a
-// dap-18 retarget; until then the tests here prove intra-implementation
-// correctness against the CFRG vdaf-14 vectors.
+// Conformance caveat: this package uses the DAP-18 domain-separation strings
+// (HPKE input-share info "dap-18 input share" and the "dap-18"||task_id VDAF
+// context), but its VDAF prep backend is still circl v1.6.3, which implements
+// vdaf-14. The ping-pong envelope is byte-identical between vdaf-14 and
+// vdaf-18, yet the verifier-share contents are not, because the VDAF XOF
+// domain separation embeds the draft version. Cross-implementation interop
+// with a dap-18 peer (Janus main) therefore additionally requires switching
+// the prep backend to the in-repo vdaf-18 Prio3 (pkg/vdaf/prio3); until that
+// swap lands, the tests here prove intra-implementation correctness against
+// the CFRG vdaf-14 vectors.
 package helper
 
 import (
@@ -32,18 +34,27 @@ import (
 )
 
 // helperAggregatorID is the aggregator index of the Helper in a two-party DAP
-// deployment. DAP-17 always has exactly two aggregators: Leader 0, Helper 1.
+// deployment. DAP-18 always has exactly two aggregators: Leader 0, Helper 1.
 const helperAggregatorID uint8 = 1
 
-// numAggregators is fixed at two for DAP-17.
+// numAggregators is fixed at two for DAP-18.
 const numAggregators uint8 = 2
 
-// hpkeInputShareInfoPrefix is the HPKE info string prefix for an input share.
-// DAP-17 §4.4.2.3 binds the role into the info; for v0.1 we use a fixed,
-// self-consistent shape (prefix + draft marker + Helper role byte). The exact
-// spec-pinned bytes are a v1.0 cross-impl-conformance concern.
-var hpkeInputShareInfoPrefix = []byte("dap-17 input share")
+// hpkeInputShareInfoPrefix is the version-bound prefix of the HPKE info string
+// for an input share. DAP-18 fixes the full info as
+//
+//	"dap-18 input share" || sender_role || recipient_role
+//
+// a raw concatenation with no length prefixes, byte-identical on the Client
+// SealBase (§4.4.2.1) and the Aggregator OpenBase (§4.5.3.3). The sender of an
+// input share is always the Client (role 0x01); the recipient is this
+// Aggregator (0x02 Leader, 0x03 Helper). helperInputShareInfo assembles the
+// Helper view. The published RFC drops the draft suffix ("dap-18" -> "dap"); a
+// build targeting draft-18 MUST keep "dap-18".
+var hpkeInputShareInfoPrefix = []byte("dap-18 input share")
 
+// Role code points from the DAP-18 Role enum (collector(0), client(1),
+// leader(2), helper(3)).
 const (
 	roleClient uint8 = 1
 	roleHelper uint8 = 3
@@ -56,6 +67,26 @@ func helperInputShareInfo() []byte {
 	info = append(info, hpkeInputShareInfoPrefix...)
 	info = append(info, roleClient, roleHelper)
 	return info
+}
+
+// dapVDAFVersion is the DAP-18 domain-separation marker prepended to the task
+// ID to form the VDAF application context (§4.4.2.1). The published RFC drops
+// the draft suffix ("dap-18" -> "dap"); a build targeting draft-18 MUST keep
+// "dap-18".
+var dapVDAFVersion = []byte("dap-18")
+
+// DAPVDAFContext returns the VDAF application context ("ctx") that DAP-18 binds
+// into every VDAF call (shard and all ping_pong_* transitions): the literal
+// "dap-18" followed by the 32-byte task ID, raw-concatenated with no length
+// prefix (§4.4.2.1, §4.5.3). A task registered for cross-implementation interop
+// must build its *prio3.Count with this context. The unit tests instead inject
+// the bare CFRG vector context, to validate intra-implementation VDAF
+// correctness against the published test vectors.
+func DAPVDAFContext(taskID wire.TaskID) []byte {
+	ctx := make([]byte, 0, len(dapVDAFVersion)+len(taskID))
+	ctx = append(ctx, dapVDAFVersion...)
+	ctx = append(ctx, taskID[:]...)
+	return ctx
 }
 
 // Task is the minimal Helper-side task configuration for v0.1. It omits the
