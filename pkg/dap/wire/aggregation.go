@@ -103,11 +103,15 @@ type AggregationJobResp struct {
 }
 
 // InputShareAad is the HPKE additional-authenticated-data the aggregator
-// reconstructs to decrypt a report's input share (DAP-17 §4.4.2.2).
+// reconstructs to decrypt a report's input share (DAP-18 §4.4.2.1 / §4.5.3.3).
+// Draft-18 inserted TaskConfiguration as the second field (changelog #774),
+// which changes the AAD bytes for every input share even though the Report
+// itself is unchanged.
 type InputShareAad struct {
-	TaskID         TaskID
-	ReportMetadata ReportMetadata
-	PublicShare    []byte
+	TaskID            TaskID
+	TaskConfiguration TaskConfiguration
+	ReportMetadata    ReportMetadata
+	PublicShare       []byte
 }
 
 // ---- ReportShare ----
@@ -305,6 +309,9 @@ func (i *InputShareAad) Marshal(b *cryptobyte.Builder) error {
 	if err := i.TaskID.Marshal(b); err != nil {
 		return err
 	}
+	if err := i.TaskConfiguration.Marshal(b); err != nil {
+		return err
+	}
 	if err := i.ReportMetadata.Marshal(b); err != nil {
 		return err
 	}
@@ -316,6 +323,9 @@ func (i *InputShareAad) Marshal(b *cryptobyte.Builder) error {
 
 func (i *InputShareAad) Unmarshal(s *cryptobyte.String) bool {
 	if !i.TaskID.Unmarshal(s) {
+		return false
+	}
+	if !i.TaskConfiguration.Unmarshal(s) {
 		return false
 	}
 	if !i.ReportMetadata.Unmarshal(s) {

@@ -93,7 +93,11 @@ func DAPVDAFContext(taskID wire.TaskID) []byte {
 // time_precision / task_start / task_end / tolerable_clock_skew fields of a
 // full DAP task, so the timestamp-validation gates are not enforced yet.
 type Task struct {
-	TaskID         wire.TaskID
+	TaskID wire.TaskID
+	// TaskConfig is the task's wire TaskConfiguration. DAP-18 binds it into the
+	// input-share HPKE AAD (InputShareAad), so the Helper must hold the exact
+	// bytes the Client used when sealing, or every HPKE open fails.
+	TaskConfig     wire.TaskConfiguration
 	VDAFContext    []byte
 	VerifyKey      prio3.CountVerifyKey
 	HPKESuite      hpke.Suite
@@ -164,9 +168,10 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 	}
 
 	aad := wire.InputShareAad{
-		TaskID:         task.TaskID,
-		ReportMetadata: vi.ReportShare.ReportMetadata,
-		PublicShare:    vi.ReportShare.PublicShare,
+		TaskID:            task.TaskID,
+		TaskConfiguration: task.TaskConfig,
+		ReportMetadata:    vi.ReportShare.ReportMetadata,
+		PublicShare:       vi.ReportShare.PublicShare,
 	}
 	aadBytes, err := aad.MarshalBinary()
 	if err != nil {

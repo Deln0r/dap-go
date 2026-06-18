@@ -113,8 +113,19 @@ func synthetic(t *testing.T) syntheticReport {
 		taskID[i] = byte(i)
 	}
 	const configID wire.HpkeConfigID = 7
+	taskConfig := wire.TaskConfiguration{
+		TaskInfo:          []byte("dap-go helper interop"),
+		LeaderEndpoint:    []byte("https://leader.example/"),
+		HelperEndpoint:    []byte("https://helper.example/"),
+		TimePrecision:     3600,
+		MinBatchSize:      1,
+		BatchMode:         wire.BatchModeLeaderSelected,
+		VdafType:          wire.VdafTypePrio3Count,
+		VdafConfiguration: nil, // Prio3Count: Appendix B.1 Empty
+	}
 	task := &Task{
 		TaskID:         taskID,
+		TaskConfig:     taskConfig,
 		VDAFContext:    v.Ctx,
 		VerifyKey:      vk,
 		HPKESuite:      suite,
@@ -147,7 +158,7 @@ func synthetic(t *testing.T) syntheticReport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aadBytes, err := (&wire.InputShareAad{TaskID: taskID, ReportMetadata: meta, PublicShare: pubShareBytes}).MarshalBinary()
+	aadBytes, err := (&wire.InputShareAad{TaskID: taskID, TaskConfiguration: taskConfig, ReportMetadata: meta, PublicShare: pubShareBytes}).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -187,7 +187,8 @@ func TestInputShareAad_RoundTrip(t *testing.T) {
 		tid[i] = byte(i)
 	}
 	aad := InputShareAad{
-		TaskID: tid,
+		TaskID:            tid,
+		TaskConfiguration: sampleTaskConfig(),
 		ReportMetadata: ReportMetadata{
 			ReportID: ReportID{0xFF},
 			Time:     42,
@@ -205,5 +206,10 @@ func TestInputShareAad_RoundTrip(t *testing.T) {
 	if dec.TaskID != aad.TaskID || dec.ReportMetadata.Time != aad.ReportMetadata.Time ||
 		!bytes.Equal(dec.PublicShare, aad.PublicShare) {
 		t.Fatalf("InputShareAad round-trip mismatch")
+	}
+	if !bytes.Equal(dec.TaskConfiguration.TaskInfo, aad.TaskConfiguration.TaskInfo) ||
+		dec.TaskConfiguration.VdafType != aad.TaskConfiguration.VdafType ||
+		dec.TaskConfiguration.TimePrecision != aad.TaskConfiguration.TimePrecision {
+		t.Fatalf("InputShareAad task_configuration round-trip mismatch")
 	}
 }
