@@ -3,12 +3,14 @@ package helper
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Deln0r/dap-go/internal/hpke"
@@ -119,7 +121,7 @@ func synthetic(t *testing.T) syntheticReport {
 		HelperEndpoint:    []byte("https://helper.example/"),
 		TimePrecision:     3600,
 		MinBatchSize:      1,
-		BatchMode:         wire.BatchModeLeaderSelected,
+		BatchMode:         wire.BatchModeTimeInterval,
 		VdafType:          wire.VdafTypePrio3Count,
 		VdafConfiguration: nil, // Prio3Count: Appendix B.1 Empty
 	}
@@ -127,7 +129,7 @@ func synthetic(t *testing.T) syntheticReport {
 		TaskID:         taskID,
 		TaskConfig:     taskConfig,
 		VDAFContext:    v.Ctx,
-		VerifyKey:      vk,
+		VerifyKeys:     map[uint8]prio3.CountVerifyKey{0: vk},
 		HPKESuite:      suite,
 		HPKEConfigID:   configID,
 		HPKEPublicKey:  pubKey,
@@ -189,14 +191,28 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 }
 
-func jobURL(task *Task, jobID [16]byte) string {
-	return "/tasks/" + base64.RawURLEncoding.EncodeToString(task.TaskID[:]) +
-		"/aggregation_jobs/" + base64.RawURLEncoding.EncodeToString(jobID[:])
+func collectionURL(task *Task) string {
+	return "/tasks/" + base64.RawURLEncoding.EncodeToString(task.TaskID[:]) + "/aggregation_jobs"
 }
 
-func putInit(t *testing.T, h *Handler, task *Task, jobID [16]byte, body []byte) *httptest.ResponseRecorder {
+func jobURL(task *Task, jobID [16]byte) string {
+	return collectionURL(task) + "/" + base64.RawURLEncoding.EncodeToString(jobID[:])
+}
+
+// jobIDOf reproduces the Helper's server-selected job ID, which DAP-18 §3.2
+// permits deriving deterministically from the request content.
+func jobIDOf(body []byte) [16]byte {
+	sum := sha256.Sum256(body)
+	var id [16]byte
+	copy(id[:], sum[:])
+	return id
+}
+
+// postCreate POSTs an AggregationJobInitReq to the collection URL (DAP-18
+// §3.2 / §4.5.3), the way a dap-18 Leader creates an aggregation job.
+func postCreate(t *testing.T, h *Handler, task *Task, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPut, jobURL(task, jobID), bytes.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, collectionURL(task), bytes.NewReader(body))
 	r.Header.Set("Content-Type", mediaInitReq)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)
@@ -207,13 +223,15 @@ func TestHelper_Init_HTTPRoundTrip(t *testing.T) {
 	s := synthetic(t)
 	h := NewHandler(NewMemStore(s.Task))
 
-	jobID := [16]byte{0x33}
-	rec := putInit(t, h, s.Task, jobID, s.ReqBytes)
+	rec := postCreate(t, h, s.Task, s.ReqBytes)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != mediaResp {
 		t.Fatalf("content-type = %q, want %q", ct, mediaResp)
+	}
+	if rec.Header().Get("Location") == "" {
+		t.Fatal("missing Location header on create")
 	}
 
 	var resp wire.AggregationJobResp
@@ -249,13 +267,12 @@ func TestHelper_Init_OutShareByteExact(t *testing.T) {
 	store := NewMemStore(s.Task)
 	h := NewHandler(store)
 
-	var jobID [16]byte
-	rec := putInit(t, h, s.Task, jobID, s.ReqBytes)
+	rec := postCreate(t, h, s.Task, s.ReqBytes)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
 
-	job, ok := store.GetJob(s.Task.TaskID, jobID)
+	job, ok := store.GetJob(s.Task.TaskID, jobIDOf(s.ReqBytes))
 	if !ok {
 		t.Fatal("job not stored")
 	}
@@ -293,7 +310,7 @@ func TestHelper_Init_RejectsNonInitializeMessage(t *testing.T) {
 	}
 
 	h := NewHandler(NewMemStore(s.Task))
-	rec := putInit(t, h, s.Task, [16]byte{}, badReq)
+	rec := postCreate(t, h, s.Task, badReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 with rejecting verify_resp", rec.Code)
 	}
@@ -322,7 +339,7 @@ func TestHelper_Init_RejectsGarbageFraming(t *testing.T) {
 	}
 
 	h := NewHandler(NewMemStore(s.Task))
-	rec := putInit(t, h, s.Task, [16]byte{}, badReq)
+	rec := postCreate(t, h, s.Task, badReq)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 with rejecting verify_resp", rec.Code)
 	}
@@ -340,7 +357,7 @@ func TestHelper_Init_UnknownTask(t *testing.T) {
 	s := synthetic(t)
 	h := NewHandler(NewMemStore()) // task NOT registered
 
-	rec := putInit(t, h, s.Task, [16]byte{}, s.ReqBytes)
+	rec := postCreate(t, h, s.Task, s.ReqBytes)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
@@ -361,7 +378,7 @@ func TestHelper_Init_HpkeDecryptError(t *testing.T) {
 	s.Task.HPKEPrivateKey = wrongPriv
 
 	h := NewHandler(NewMemStore(s.Task))
-	rec := putInit(t, h, s.Task, [16]byte{}, s.ReqBytes)
+	rec := postCreate(t, h, s.Task, s.ReqBytes)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 with a rejecting verify_resp; body=%s", rec.Code, rec.Body.String())
 	}
@@ -380,31 +397,42 @@ func TestHelper_Init_HpkeDecryptError(t *testing.T) {
 	}
 }
 
-func TestHelper_Init_IdempotentReplayAndMutation(t *testing.T) {
+func TestHelper_Init_IdempotentReplayDistinctContent(t *testing.T) {
 	s := synthetic(t)
 	h := NewHandler(NewMemStore(s.Task))
-	var jobID [16]byte
 
-	first := putInit(t, h, s.Task, jobID, s.ReqBytes)
+	first := postCreate(t, h, s.Task, s.ReqBytes)
 	if first.Code != http.StatusOK {
-		t.Fatalf("first PUT status = %d", first.Code)
+		t.Fatalf("first create status = %d", first.Code)
 	}
-	replay := putInit(t, h, s.Task, jobID, s.ReqBytes)
+	replay := postCreate(t, h, s.Task, s.ReqBytes)
 	if replay.Code != http.StatusOK {
-		t.Fatalf("replay PUT status = %d", replay.Code)
+		t.Fatalf("replay status = %d", replay.Code)
 	}
 	if !bytes.Equal(first.Body.Bytes(), replay.Body.Bytes()) {
 		t.Fatal("idempotent replay returned a different body")
 	}
+	if first.Header().Get("Location") != replay.Header().Get("Location") {
+		t.Fatal("idempotent replay returned a different resource location")
+	}
 
-	// Same job ID, different body => 409 Conflict (or 400 if the mutation broke
-	// the wire parse).
+	// The job ID derives from the request content (§3.2), so a different body
+	// is a distinct job, never an in-place mutation of the first. A one-byte
+	// flip either parses to a new job (different Location) or fails the wire
+	// parse with 400.
 	mutated := make([]byte, len(s.ReqBytes))
 	copy(mutated, s.ReqBytes)
 	mutated[len(mutated)-1] ^= 0xFF
-	conflict := putInit(t, h, s.Task, jobID, mutated)
-	if conflict.Code != http.StatusConflict && conflict.Code != http.StatusBadRequest {
-		t.Fatalf("mutation status = %d, want 409 or 400", conflict.Code)
+	other := postCreate(t, h, s.Task, mutated)
+	switch other.Code {
+	case http.StatusOK:
+		if other.Header().Get("Location") == first.Header().Get("Location") {
+			t.Fatal("distinct content mapped to the same job resource")
+		}
+	case http.StatusBadRequest:
+		// the mutation broke the wire parse; acceptable
+	default:
+		t.Fatalf("mutated body status = %d, want 200 (new job) or 400", other.Code)
 	}
 }
 
@@ -412,11 +440,11 @@ func TestHelper_Delete(t *testing.T) {
 	s := synthetic(t)
 	store := NewMemStore(s.Task)
 	h := NewHandler(store)
-	var jobID [16]byte
 
-	putInit(t, h, s.Task, jobID, s.ReqBytes)
+	postCreate(t, h, s.Task, s.ReqBytes)
+	jobID := jobIDOf(s.ReqBytes)
 	if _, ok := store.GetJob(s.Task.TaskID, jobID); !ok {
-		t.Fatal("job not stored after PUT")
+		t.Fatal("job not stored after create")
 	}
 
 	del := httptest.NewRequest(http.MethodDelete, jobURL(s.Task, jobID), nil)
@@ -439,4 +467,72 @@ func TestHelper_Continue_NotImplemented(t *testing.T) {
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("POST continue status = %d, want 501", rec.Code)
 	}
+}
+
+// TestHelper_Init_ExtensionAndKeyValidation covers the DAP-18 §4.5.3.2 job-level
+// checks added in M8: verification_key_id selection, the aggregation-job
+// extension type/order rules, and the leader-selected mandatory batch-id.
+func TestHelper_Init_ExtensionAndKeyValidation(t *testing.T) {
+	s := synthetic(t)
+
+	decode := func() wire.AggregationJobInitReq {
+		var req wire.AggregationJobInitReq
+		if err := req.UnmarshalBinary(s.ReqBytes); err != nil {
+			t.Fatal(err)
+		}
+		return req
+	}
+	encode := func(req wire.AggregationJobInitReq) []byte {
+		b, err := req.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	wantProblem := func(t *testing.T, rec *httptest.ResponseRecorder, suffix string) {
+		t.Helper()
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		var doc struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(doc.Type, suffix) {
+			t.Fatalf("problem type = %q, want suffix %q", doc.Type, suffix)
+		}
+	}
+
+	h := NewHandler(NewMemStore(s.Task))
+
+	t.Run("unknown verification_key_id", func(t *testing.T) {
+		req := decode()
+		req.VerificationKeyID = 9 // keyring holds only id 0
+		wantProblem(t, postCreate(t, h, s.Task, encode(req)), "invalidMessage")
+	})
+
+	t.Run("unsupported extension", func(t *testing.T) {
+		req := decode()
+		req.Extensions = []wire.AggregationJobExtension{{Type: 0x05}}
+		wantProblem(t, postCreate(t, h, s.Task, encode(req)), "unsupportedExtension")
+	})
+
+	t.Run("out of order extensions", func(t *testing.T) {
+		var bid wire.BatchID
+		req := decode()
+		req.Extensions = []wire.AggregationJobExtension{
+			wire.LeaderSelectedBatchIDExtension(bid),
+			wire.LeaderSelectedBatchIDExtension(bid),
+		}
+		wantProblem(t, postCreate(t, h, s.Task, encode(req)), "invalidMessage")
+	})
+
+	t.Run("leader-selected requires batch id", func(t *testing.T) {
+		lsTask := *s.Task
+		lsTask.TaskConfig.BatchMode = wire.BatchModeLeaderSelected
+		lh := NewHandler(NewMemStore(&lsTask))
+		wantProblem(t, postCreate(t, lh, &lsTask, s.ReqBytes), "invalidMessage")
+	})
 }

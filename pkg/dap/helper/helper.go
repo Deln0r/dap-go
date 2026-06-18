@@ -97,9 +97,13 @@ type Task struct {
 	// TaskConfig is the task's wire TaskConfiguration. DAP-18 binds it into the
 	// input-share HPKE AAD (InputShareAad), so the Helper must hold the exact
 	// bytes the Client used when sealing, or every HPKE open fails.
-	TaskConfig     wire.TaskConfiguration
-	VDAFContext    []byte
-	VerifyKey      prio3.CountVerifyKey
+	TaskConfig  wire.TaskConfiguration
+	VDAFContext []byte
+	// VerifyKeys is the Helper's VDAF verification keyring, indexed by the
+	// AggregationJobInitReq.verification_key_id the Leader nominates (DAP-18
+	// §4.5.3.1). A Leader selects one prearranged key per job; a request naming
+	// an id absent from this map is failed with invalidMessage.
+	VerifyKeys     map[uint8]prio3.CountVerifyKey
 	HPKESuite      hpke.Suite
 	HPKEConfigID   wire.HpkeConfigID
 	HPKEPublicKey  []byte
@@ -153,7 +157,7 @@ type AggregationJob struct {
 // never returns an error: a per-report failure is reported in the returned
 // VerifyResp with type reject and a ReportError. The returned ReportAggregation
 // captures the resulting state.
-func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp, *ReportAggregation) {
+func aggregateInit(task *Task, vk *prio3.CountVerifyKey, vi wire.VerifyInit, ord uint64) (wire.VerifyResp, *ReportAggregation) {
 	reportID := vi.ReportShare.ReportMetadata.ReportID
 
 	reject := func(e wire.ReportError) (wire.VerifyResp, *ReportAggregation) {
@@ -229,7 +233,7 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 	copy(nonce[:], reportID[:])
 	var publicShare prio3.CountPublicShare // empty for Prio3Count
 
-	prepState, helperShare, err := c.PrepInit(&task.VerifyKey, &nonce, helperAggregatorID, publicShare, inputShare)
+	prepState, helperShare, err := c.PrepInit(vk, &nonce, helperAggregatorID, publicShare, inputShare)
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
@@ -273,7 +277,7 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 
 // buildInitJob runs aggregateInit over every report in the request and assembles
 // the job record plus the response, preserving request order.
-func buildInitJob(task *Task, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
+func buildInitJob(task *Task, vk *prio3.CountVerifyKey, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
 	job := &AggregationJob{
 		TaskID:           task.TaskID,
 		AggregationJobID: jobID,
@@ -284,7 +288,7 @@ func buildInitJob(task *Task, jobID [16]byte, req *wire.AggregationJobInitReq, r
 	job.ReportAggs = make([]*ReportAggregation, len(req.VerifyInits))
 	resp := wire.AggregationJobResp{VerifyResps: make([]wire.VerifyResp, len(req.VerifyInits))}
 	for i := range req.VerifyInits {
-		vr, ra := aggregateInit(task, req.VerifyInits[i], uint64(i))
+		vr, ra := aggregateInit(task, vk, req.VerifyInits[i], uint64(i))
 		job.ReportAggs[i] = ra
 		resp.VerifyResps[i] = vr
 	}
