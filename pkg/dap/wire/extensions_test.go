@@ -70,3 +70,25 @@ func TestStrictlyIncreasingAggJobExtensions(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictlyIncreasingExtensions(t *testing.T) {
+	mk := func(types ...uint16) []Extension {
+		out := make([]Extension, len(types))
+		for i, ty := range types {
+			out[i] = Extension{Type: ExtensionType(ty)}
+		}
+		return out
+	}
+	ordered := [][]Extension{mk(), mk(3), mk(1, 4, 9)}
+	for i, exts := range ordered {
+		if !StrictlyIncreasingExtensions(exts) {
+			t.Fatalf("ordered case %d should pass", i)
+		}
+	}
+	unordered := [][]Extension{mk(1, 1), mk(9, 2), mk(0, 0)}
+	for i, exts := range unordered {
+		if StrictlyIncreasingExtensions(exts) {
+			t.Fatalf("unordered case %d should be rejected", i)
+		}
+	}
+}

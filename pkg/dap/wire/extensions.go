@@ -126,3 +126,18 @@ func StrictlyIncreasingAggJobExtensions(exts []AggregationJobExtension) bool {
 	}
 	return true
 }
+
+// StrictlyIncreasingExtensions reports whether report extensions are ordered
+// strictly increasing by extension_type with no duplicates. DAP-18 §4.5.3.4
+// input-share validity check 7 requires this of both the public and private
+// extension vectors; a false result is an invalid input share (report error
+// invalid_message). It is the report-extension twin of
+// StrictlyIncreasingAggJobExtensions.
+func StrictlyIncreasingExtensions(exts []Extension) bool {
+	for i := 1; i < len(exts); i++ {
+		if exts[i].Type <= exts[i-1].Type {
+			return false
+		}
+	}
+	return true
+}

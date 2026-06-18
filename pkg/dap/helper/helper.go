@@ -193,6 +193,14 @@ func aggregateInit(task *Task, vi wire.VerifyInit, ord uint64) (wire.VerifyResp,
 		return reject(wire.ReportErrorInvalidMessage)
 	}
 
+	// Input-share validity check 7 (DAP-18 §4.5.3.4): the public and private
+	// report extensions MUST each be encoded in strictly increasing
+	// extension_type order, else the input share is invalid (invalid_message).
+	if !wire.StrictlyIncreasingExtensions(vi.ReportShare.ReportMetadata.PublicExtensions) ||
+		!wire.StrictlyIncreasingExtensions(pis.PrivateExtensions) {
+		return reject(wire.ReportErrorInvalidMessage)
+	}
+
 	c, err := prio3.NewCount(numAggregators, task.VDAFContext)
 	if err != nil {
 		return reject(wire.ReportErrorInvalidMessage)
