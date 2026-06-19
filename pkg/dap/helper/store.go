@@ -8,7 +8,7 @@ import (
 )
 
 // ErrJobMutation is returned by PutJob when a job already exists under the same
-// task and job ID but with a different request hash. DAP-17 §4.5.2 forbids
+// task and job ID but with a different request hash. DAP-18 §4.5.2 forbids
 // re-initializing an aggregation job with different content; the handler maps
 // this to HTTP 409 Conflict.
 var ErrJobMutation = errors.New("dap/helper: aggregation job already exists with different content")

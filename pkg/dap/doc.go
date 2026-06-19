@@ -1,2 +1,2 @@
-// Package dap provides the DAP-17 protocol types and state machine.
+// Package dap provides the DAP-18 protocol types and state machine.
 package dap

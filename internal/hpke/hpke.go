@@ -1,9 +1,9 @@
 // Package hpke wraps github.com/cloudflare/circl/hpke for use inside
 // dap-go. The wrapper exists so that callers see byte-slice inputs and
-// outputs (matching what DAP-17 carries on the wire as HpkeCiphertext)
+// outputs (matching what DAP-18 carries on the wire as HpkeCiphertext)
 // rather than circl's typed kem.PublicKey / kem.PrivateKey values.
 //
-// HPKE itself is specified by RFC 9180. DAP-17 §4.4.1 lists HpkeKemId,
+// HPKE itself is specified by RFC 9180. DAP-18 §4.4.1 lists HpkeKemId,
 // HpkeKdfId, and HpkeAeadId code points; this package re-exports them
 // as KEM / KDF / AEAD so the rest of dap-go can use a single import path.
 package hpke
@@ -16,7 +16,7 @@ import (
 )
 
 // Re-exported algorithm identifiers from circl. The numeric values match
-// the IANA HPKE registry and the DAP-17 HpkeKemId/HpkeKdfId/HpkeAeadId
+// the IANA HPKE registry and the DAP-18 HpkeKemId/HpkeKdfId/HpkeAeadId
 // code points.
 type (
 	KEM  = hpke.KEM
@@ -35,7 +35,7 @@ const (
 )
 
 // Suite is a tuple of (KEM, KDF, AEAD) algorithm identifiers, mirroring
-// HpkeConfig's algorithm fields in DAP-17 §4.4.1.
+// HpkeConfig's algorithm fields in DAP-18 §4.4.1.
 type Suite struct {
 	KEM  KEM
 	KDF  KDF
@@ -79,7 +79,7 @@ func GenerateKeyPair(suite Suite) (publicKey, privateKey []byte, err error) {
 
 // Seal encrypts plaintext to the recipient identified by recipientPublicKey
 // using suite. info binds the encapsulated key to a protocol context
-// (DAP-17 §4.4.2.2 builds this from the role and report metadata). aad
+// (DAP-18 §4.4.2.2 builds this from the role and report metadata). aad
 // authenticates additional data not transmitted in the ciphertext.
 //
 // The returned enc is the KEM-encapsulated symmetric key suitable for

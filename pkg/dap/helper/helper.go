@@ -13,16 +13,12 @@
 // durable storage, and timestamp validation are deferred; see the README and
 // (non-)AGENTS.md.
 //
-// Conformance caveat: this package uses the DAP-18 domain-separation strings
-// (HPKE input-share info "dap-18 input share" and the "dap-18"||task_id VDAF
-// context), but its VDAF prep backend is still circl v1.6.3, which implements
-// vdaf-14. The ping-pong envelope is byte-identical between vdaf-14 and
-// vdaf-18, yet the verifier-share contents are not, because the VDAF XOF
-// domain separation embeds the draft version. Cross-implementation interop
-// with a dap-18 peer (Janus main) therefore additionally requires switching
-// the prep backend to the in-repo vdaf-18 Prio3 (pkg/vdaf/prio3); until that
-// swap lands, the tests here prove intra-implementation correctness against
-// the CFRG vdaf-14 vectors.
+// Conformance caveat: this package is dap-18 end to end, including the
+// from-scratch draft-18 Prio3 backend in pkg/vdaf/prio3 and the dap-18
+// domain-separation strings. The byte-exact tests here use the CFRG vdaf-18
+// vectors' bare context string, so they prove intra-implementation VDAF
+// correctness; a live cross-run against Janus main (the only dap-18 peer) is
+// what proves cross-implementation conformance, and is the next milestone.
 package helper
 
 import (

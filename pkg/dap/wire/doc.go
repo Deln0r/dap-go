@@ -1,2 +1,2 @@
-// Package wire encodes and decodes DAP-17 wire types.
+// Package wire encodes and decodes DAP-18 wire types.
 package wire

@@ -254,13 +254,13 @@ func TestHelper_Init_HTTPRoundTrip(t *testing.T) {
 	}
 }
 
-// TestHelper_Init_OutShareByteExact drives the synthetic report through the PUT
-// handler and asserts the Helper committed an output share byte-equal to the
-// CFRG Prio3Count_0 reference out-share (1f96fa976d56026a). In the ping-pong
-// topology the Helper finishes at init for a single-round VDAF, so the out
-// share is read straight from the store. This is intra-impl VDAF correctness
-// against the vdaf-14 vectors, not a cross-impl conformance check (see package
-// doc on the vdaf-14 vs vdaf-18 gap).
+// TestHelper_Init_OutShareByteExact drives the synthetic report through the
+// POST-create handler and asserts the Helper committed an output share
+// byte-equal to the draft-18 CFRG Prio3Count_0 reference out-share (the
+// vector's out_shares[1]). In the ping-pong topology the Helper finishes at
+// init for a single-round VDAF, so the out share is read straight from the
+// store. This is intra-impl VDAF correctness against the vdaf-18 vectors, not a
+// cross-impl conformance check (see package doc).
 func TestHelper_Init_OutShareByteExact(t *testing.T) {
 	s := synthetic(t)
 	store := NewMemStore(s.Task)

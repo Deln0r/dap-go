@@ -44,7 +44,7 @@ func TestInputShare_HPKERoundTrip(t *testing.T) {
 	}
 
 	// info + aad would in production be derived from TaskID + ReportMetadata
-	// per DAP-17 §4.4.2.2; for this round-trip any pair that matches on both
+	// per DAP-18 §4.4.2.2; for this round-trip any pair that matches on both
 	// sides suffices.
 	info := []byte("dap-go integration test info")
 	aad := []byte("dap-go integration test aad")
@@ -96,7 +96,7 @@ func TestInputShare_HPKERoundTrip(t *testing.T) {
 	}
 }
 
-// TestInputShare_HelperRejectsLeaderCiphertext models the DAP-17 §4.4.2.2
+// TestInputShare_HelperRejectsLeaderCiphertext models the DAP-18 §4.4.2.2
 // rule that the Helper-role aggregator must not be able to open an HPKE
 // ciphertext that was sealed for the Leader role. We simulate this by
 // using a distinct info string for the Helper recipient and confirming

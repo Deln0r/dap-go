@@ -1,5 +1,5 @@
-// Package wire encodes and decodes DAP-17 wire types using the TLS
-// presentation language (RFC 8446 §3) as specified in draft-ietf-ppm-dap-17.
+// Package wire encodes and decodes DAP-18 wire types using the TLS
+// presentation language (RFC 8446 §3) as specified in draft-ietf-ppm-dap-18.
 //
 // Each exported type provides:
 //   - Marshal(b *cryptobyte.Builder) error           — append to a Builder.
@@ -17,49 +17,49 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// ReportIDSize is the byte length of a ReportID (DAP-17 §4.1).
+// ReportIDSize is the byte length of a ReportID (DAP-18 §4.1).
 const ReportIDSize = 16
 
-// TaskIDSize is the byte length of a TaskID (DAP-17 §4.2).
+// TaskIDSize is the byte length of a TaskID (DAP-18 §4.2).
 const TaskIDSize = 32
 
-// ReportID is the per-Report unique identifier (DAP-17 §4.1).
+// ReportID is the per-Report unique identifier (DAP-18 §4.1).
 type ReportID [ReportIDSize]byte
 
-// Time is a UNIX timestamp in seconds (DAP-17 §4.1.1).
+// Time is a UNIX timestamp in seconds (DAP-18 §4.1.1).
 type Time uint64
 
-// HpkeConfigID identifies an HPKE configuration key (DAP-17 §4.4.1).
+// HpkeConfigID identifies an HPKE configuration key (DAP-18 §4.4.1).
 type HpkeConfigID uint8
 
-// TaskID is the per-task unique identifier (DAP-17 §4.2).
+// TaskID is the per-task unique identifier (DAP-18 §4.2).
 type TaskID [TaskIDSize]byte
 
-// ExtensionType is the registered extension code point (DAP-17 §4.4.3).
+// ExtensionType is the registered extension code point (DAP-18 §4.4.3).
 // The reserved code point is 0; all other values are IANA-registered.
 type ExtensionType uint16
 
-// Extension is a typed extension carrying opaque data (DAP-17 §4.4.3).
+// Extension is a typed extension carrying opaque data (DAP-18 §4.4.3).
 type Extension struct {
 	Type ExtensionType
 	Data []byte
 }
 
-// HpkeCiphertext is an HPKE-sealed payload (DAP-17 §4.1).
+// HpkeCiphertext is an HPKE-sealed payload (DAP-18 §4.1).
 type HpkeCiphertext struct {
 	ConfigID HpkeConfigID
 	Enc      []byte
 	Payload  []byte
 }
 
-// ReportMetadata is the public metadata carried by a Report (DAP-17 §4.4.2).
+// ReportMetadata is the public metadata carried by a Report (DAP-18 §4.4.2).
 type ReportMetadata struct {
 	ReportID         ReportID
 	Time             Time
 	PublicExtensions []Extension
 }
 
-// Report is the upload payload submitted by a Client (DAP-17 §4.4.2).
+// Report is the upload payload submitted by a Client (DAP-18 §4.4.2).
 type Report struct {
 	Metadata                  ReportMetadata
 	PublicShare               []byte
@@ -68,7 +68,7 @@ type Report struct {
 }
 
 // PlaintextInputShare is the cleartext inside an encrypted input share
-// (DAP-17 §4.4.2.1).
+// (DAP-18 §4.4.2.1).
 type PlaintextInputShare struct {
 	PrivateExtensions []Extension
 	Payload           []byte

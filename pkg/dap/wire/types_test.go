@@ -197,7 +197,7 @@ func TestReport_RoundTrip(t *testing.T) {
 
 func TestNegative_HpkeCiphertextEmptyEnc(t *testing.T) {
 	// HpkeCiphertext: Enc<1..2^16-1> with length 0 must be rejected
-	// (DAP-17 §4.1 specifies the minimum length as 1).
+	// (DAP-18 §4.1 specifies the minimum length as 1).
 	bad := mustHex(t, "07"+"0000"+"00000001ff")
 	var h HpkeCiphertext
 	if err := h.UnmarshalBinary(bad); !errors.Is(err, ErrMalformed) {

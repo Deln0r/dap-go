@@ -27,7 +27,7 @@ The `-s` flag adds the trailer automatically using your `git config user.name` a
 
 ## Wire format compatibility
 
-Binary protocol compatibility with [draft-ietf-ppm-dap-17](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) is non-negotiable. Any change that breaks interop with Janus, Daphne, or divviup-ts on the official interop docker harness is a regression even if all Go tests pass.
+Binary protocol compatibility with [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) is non-negotiable. Any change that breaks interop with Janus, Daphne, or divviup-ts on the official interop docker harness is a regression even if all Go tests pass.
 
 If your change touches encoding paths:
 1. Add or extend a fixture under `testdata/fixtures/` from the CFRG VDAF test vector set or the DAP draft appendix.

@@ -4,12 +4,12 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// This file adds the DAP-17 §4.5 aggregation sub-protocol wire types.
+// This file adds the DAP-18 §4.5 aggregation sub-protocol wire types.
 //
 // Naming note: draft-17 renamed the aggregation-path structures relative to
 // earlier drafts. The old PrepareInit / PrepareResp / PrepareStep became
 // VerifyInit / VerifyResp / VerifyContinue, and the Continued/Finished/Rejected
-// variant tags became the VerifyRespType enum. The names below follow draft-17.
+// variant tags became the VerifyRespType enum. The names below follow draft-18.
 //
 // Three of these structures (AggregationJobInitReq.VerifyInits,
 // AggregationJobResp.VerifyResps, and the continuation request not yet
@@ -18,7 +18,7 @@ import (
 // remainder of the byte stream; on encode they are appended with no outer
 // length field.
 
-// BatchMode identifies how reports are grouped into batches (DAP-17 §5).
+// BatchMode identifies how reports are grouped into batches (DAP-18 §5).
 type BatchMode uint8
 
 const (
@@ -27,7 +27,7 @@ const (
 	BatchModeLeaderSelected BatchMode = 2
 )
 
-// VerifyRespType is the per-report result tag in a VerifyResp (DAP-17 §4.5.2.2).
+// VerifyRespType is the per-report result tag in a VerifyResp (DAP-18 §4.5.3.2).
 type VerifyRespType uint8
 
 const (
@@ -37,7 +37,7 @@ const (
 )
 
 // ReportError is the rejection reason carried in a rejecting VerifyResp
-// (DAP-17 §4.1).
+// (DAP-18 §4.1).
 type ReportError uint8
 
 const (
@@ -57,7 +57,7 @@ const (
 
 // ReportShare is a single aggregator's view of a report inside the aggregation
 // sub-protocol: the public metadata, the public share, and this aggregator's
-// encrypted input share (DAP-17 §4.5.2.1).
+// encrypted input share (DAP-18 §4.5.3.1).
 type ReportShare struct {
 	ReportMetadata      ReportMetadata
 	PublicShare         []byte
@@ -65,7 +65,7 @@ type ReportShare struct {
 }
 
 // VerifyInit is one report's initialization message from the Leader: the
-// report share plus the Leader's outbound VDAF prep message (DAP-17 §4.5.2.1).
+// report share plus the Leader's outbound VDAF prep message (DAP-18 §4.5.3.1).
 // Payload uses an opaque<1..2^32-1> field, so it must not be empty.
 type VerifyInit struct {
 	ReportShare ReportShare
@@ -85,7 +85,7 @@ type AggregationJobInitReq struct {
 	VerifyInits       []VerifyInit
 }
 
-// VerifyResp is one report's result in an AggregationJobResp (DAP-17 §4.5.2.2).
+// VerifyResp is one report's result in an AggregationJobResp (DAP-18 §4.5.3.2).
 // The body is selected on Type: continue carries Payload (opaque<1..2^32-1>),
 // finish carries nothing, reject carries Error.
 type VerifyResp struct {
@@ -96,7 +96,7 @@ type VerifyResp struct {
 }
 
 // AggregationJobResp is the Helper's response to both init and continue
-// (DAP-17 §4.5.2.2). VerifyResps has no on-wire length prefix; it is the whole
+// (DAP-18 §4.5.3.2). VerifyResps has no on-wire length prefix; it is the whole
 // message body. Its entries must match the request's report IDs in order.
 type AggregationJobResp struct {
 	VerifyResps []VerifyResp

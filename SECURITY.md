@@ -15,7 +15,7 @@ You should expect an initial response within 7 days. If we cannot resolve the is
 
 In scope:
 
-- Protocol-level deviations from [draft-ietf-ppm-dap-17](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) that affect privacy or correctness of aggregation.
+- Protocol-level deviations from [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) that affect privacy or correctness of aggregation.
 - Memory safety, panics on adversarial input, denial of service in the Helper or Client.
 - Misuse of HPKE keys, nonces, or aggregator authentication tokens.
 - Side-channel issues introduced in our code (Prio3 timing properties depend on `cloudflare/circl`; bugs there should be reported upstream).
