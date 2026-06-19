@@ -15,7 +15,8 @@ import (
 
 	"github.com/Deln0r/dap-go/internal/hpke"
 	"github.com/Deln0r/dap-go/pkg/dap/wire"
-	"github.com/Deln0r/dap-go/pkg/prio3"
+	"github.com/Deln0r/dap-go/pkg/vdaf/field"
+	"github.com/Deln0r/dap-go/pkg/vdaf/prio3"
 )
 
 // --- fixture loader (minimal subset of the CFRG Prio3Count vector) ---
@@ -24,12 +25,12 @@ type countVector struct {
 	Ctx       hexBytes `json:"ctx"`
 	Shares    uint8    `json:"shares"`
 	VerifyKey hexBytes `json:"verify_key"`
-	Prep      []struct {
-		Measurement uint64       `json:"measurement"`
-		Nonce       hexBytes     `json:"nonce"`
-		Rand        hexBytes     `json:"rand"`
-		OutShares   [][]hexBytes `json:"out_shares"`
-	} `json:"prep"`
+	Reports   []struct {
+		Measurement int        `json:"measurement"`
+		Nonce       hexBytes   `json:"nonce"`
+		Rand        hexBytes   `json:"rand"`
+		OutShares   []hexBytes `json:"out_shares"`
+	} `json:"reports"`
 }
 
 type hexBytes []byte
@@ -60,7 +61,7 @@ func mustHexHelper(t *testing.T, s string) []byte {
 
 func loadVector(t *testing.T) countVector {
 	t.Helper()
-	data, err := os.ReadFile("../../../testdata/fixtures/vdaf/Prio3Count_0.json")
+	data, err := os.ReadFile("../../../testdata/fixtures/vdaf18/Prio3Count_0.json")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -79,28 +80,31 @@ type syntheticReport struct {
 	ReqBytes []byte
 	Task     *Task
 	ReportID wire.ReportID
+	// HelperOutShare is the encoded output share the Helper must commit for this
+	// report: the draft-18 Prio3Count_0 vector's out_shares[1] (aggregator 1).
+	HelperOutShare []byte
 }
 
 func synthetic(t *testing.T) syntheticReport {
 	t.Helper()
 	v := loadVector(t)
-	prep := v.Prep[0]
+	rep := v.Reports[0]
 
 	c, err := prio3.NewCount(v.Shares, v.Ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var vk prio3.CountVerifyKey
+	var vk [prio3.VerifyKeySize]byte
 	copy(vk[:], v.VerifyKey)
-	var nonce prio3.CountNonce
-	copy(nonce[:], prep.Nonce)
 
-	pub, inShares, err := c.Shard(prep.Measurement != 0, &nonce, prep.Rand)
+	pub, inShares, err := c.Shard(rep.Measurement, rep.Nonce, rep.Rand)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, lShare, err := c.PrepInit(&vk, &nonce, 0, pub, inShares[0])
+	// Leader (aggID 0) verify_init produces the leader's verifier share, which a
+	// real DAP Leader frames into the ping-pong initialize message.
+	_, lShare, err := c.VerifyInit(vk[:], 0, rep.Nonce, pub, inShares[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +133,7 @@ func synthetic(t *testing.T) syntheticReport {
 		TaskID:         taskID,
 		TaskConfig:     taskConfig,
 		VDAFContext:    v.Ctx,
-		VerifyKeys:     map[uint8]prio3.CountVerifyKey{0: vk},
+		VerifyKeys:     map[uint8][prio3.VerifyKeySize]byte{0: vk},
 		HPKESuite:      suite,
 		HPKEConfigID:   configID,
 		HPKEPublicKey:  pubKey,
@@ -137,14 +141,11 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 
 	var reportID wire.ReportID
-	copy(reportID[:], prep.Nonce)
+	copy(reportID[:], rep.Nonce)
 	meta := wire.ReportMetadata{ReportID: reportID, Time: 0}
-	pubShareBytes := []byte(pub)
+	pubShareBytes := pub
 
-	leaderShareBytes, err := lShare.MarshalBinary()
-	if err != nil {
-		t.Fatal(err)
-	}
+	leaderShareBytes := c.EncodeVerifierShare(lShare)
 	framedInit, err := (&wire.PingPongMessage{
 		Type:          wire.PingPongInitialize,
 		VerifierShare: leaderShareBytes,
@@ -152,10 +153,7 @@ func synthetic(t *testing.T) syntheticReport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	helperInputBytes, err := inShares[1].MarshalBinary()
-	if err != nil {
-		t.Fatal(err)
-	}
+	helperInputBytes := c.EncodeInputShare(inShares[1])
 	pisBytes, err := (&wire.PlaintextInputShare{Payload: helperInputBytes}).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +183,10 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 
 	return syntheticReport{
-		ReqBytes: reqBytes,
-		Task:     task,
-		ReportID: reportID,
+		ReqBytes:       reqBytes,
+		Task:           task,
+		ReportID:       reportID,
+		HelperOutShare: rep.OutShares[1],
 	}
 }
 
@@ -280,13 +279,9 @@ func TestHelper_Init_OutShareByteExact(t *testing.T) {
 	if ra.State != StateFinished || ra.OutShare == nil {
 		t.Fatalf("unexpected report state %v / nil out share", ra.State)
 	}
-	got, err := ra.OutShare.MarshalBinary()
-	if err != nil {
-		t.Fatal(err)
-	}
-	const wantOutShare = "1f96fa976d56026a"
-	if hex.EncodeToString(got) != wantOutShare {
-		t.Fatalf("helper out-share = %s, want %s", hex.EncodeToString(got), wantOutShare)
+	got := field.EncodeVec(ra.OutShare)
+	if !bytes.Equal(got, s.HelperOutShare) {
+		t.Fatalf("helper out-share = %x, want %x (draft-18 Prio3Count_0 vector)", got, s.HelperOutShare)
 	}
 }
 

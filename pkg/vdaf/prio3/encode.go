@@ -21,6 +21,20 @@ func (c *Count) EncodeVerifierShare(s *VerifierShare) []byte {
 	return field.EncodeVec(s.Verifiers)
 }
 
+// DecodeVerifierShare parses a verifier share (§7.2.7.3): VERIFIER_LEN*PROOFS
+// little-endian field elements. It is the inverse of EncodeVerifierShare and is
+// used by an aggregator to read a peer's verifier share off the wire.
+func (c *Count) DecodeVerifierShare(b []byte) (*VerifierShare, error) {
+	if len(b) != c.f.VerifierLen()*proofs*field.EncodedSize {
+		return nil, ErrShareSize
+	}
+	v, err := field.DecodeVec(b)
+	if err != nil {
+		return nil, err
+	}
+	return &VerifierShare{Verifiers: v}, nil
+}
+
 // EncodePublicShare serializes the public share (§7.2.7.1): empty for Count.
 func (c *Count) EncodePublicShare() []byte { return []byte{} }
 

@@ -195,3 +195,33 @@ func TestPrio3Count_NegativeVectors(t *testing.T) {
 		})
 	}
 }
+
+// TestDecodeVerifierShare_RoundTrip checks that a verifier share survives an
+// encode/decode round trip and that a wrong-length input is rejected.
+func TestDecodeVerifierShare_RoundTrip(t *testing.T) {
+	v := load(t, "Prio3Count_0.json")
+	c, err := NewCount(v.Shares, v.Ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := v.Reports[0]
+	in, err := c.DecodeInputShare(0, rep.InputShares[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, vs, err := c.VerifyInit(v.VerifyKey, 0, rep.Nonce, rep.PublicShare, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := c.EncodeVerifierShare(vs)
+	dec, err := c.DecodeVerifierShare(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(c.EncodeVerifierShare(dec), enc) {
+		t.Fatal("verifier share round-trip mismatch")
+	}
+	if _, err := c.DecodeVerifierShare(enc[:len(enc)-1]); err == nil {
+		t.Fatal("expected rejection of short verifier share")
+	}
+}

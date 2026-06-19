@@ -30,7 +30,8 @@ import (
 
 	"github.com/Deln0r/dap-go/internal/hpke"
 	"github.com/Deln0r/dap-go/pkg/dap/wire"
-	"github.com/Deln0r/dap-go/pkg/prio3"
+	"github.com/Deln0r/dap-go/pkg/vdaf/field"
+	"github.com/Deln0r/dap-go/pkg/vdaf/prio3"
 )
 
 // helperAggregatorID is the aggregator index of the Helper in a two-party DAP
@@ -103,7 +104,7 @@ type Task struct {
 	// AggregationJobInitReq.verification_key_id the Leader nominates (DAP-18
 	// §4.5.3.1). A Leader selects one prearranged key per job; a request naming
 	// an id absent from this map is failed with invalidMessage.
-	VerifyKeys     map[uint8]prio3.CountVerifyKey
+	VerifyKeys     map[uint8][prio3.VerifyKeySize]byte
 	HPKESuite      hpke.Suite
 	HPKEConfigID   wire.HpkeConfigID
 	HPKEPublicKey  []byte
@@ -129,7 +130,7 @@ type ReportAggregation struct {
 	ReportID       wire.ReportID
 	Ord            uint64
 	State          ReportAggState
-	OutShare       *prio3.CountOutShare
+	OutShare       []field.Elt
 	LastVerifyResp wire.VerifyResp
 	ReportError    wire.ReportError
 }
@@ -157,7 +158,7 @@ type AggregationJob struct {
 // never returns an error: a per-report failure is reported in the returned
 // VerifyResp with type reject and a ReportError. The returned ReportAggregation
 // captures the resulting state.
-func aggregateInit(task *Task, vk *prio3.CountVerifyKey, vi wire.VerifyInit, ord uint64) (wire.VerifyResp, *ReportAggregation) {
+func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, vi wire.VerifyInit, ord uint64) (wire.VerifyResp, *ReportAggregation) {
 	reportID := vi.ReportShare.ReportMetadata.ReportID
 
 	reject := func(e wire.ReportError) (wire.VerifyResp, *ReportAggregation) {
@@ -224,38 +225,31 @@ func aggregateInit(task *Task, vk *prio3.CountVerifyKey, vi wire.VerifyInit, ord
 	if inbound.Type != wire.PingPongInitialize {
 		return reject(wire.ReportErrorInvalidMessage)
 	}
-	leaderShare, err := c.DecodePrepShare(inbound.VerifierShare)
+	leaderShare, err := c.DecodeVerifierShare(inbound.VerifierShare)
 	if err != nil {
 		return reject(wire.ReportErrorInvalidMessage)
 	}
 
-	var nonce prio3.CountNonce
-	copy(nonce[:], reportID[:])
-	var publicShare prio3.CountPublicShare // empty for Prio3Count
-
-	prepState, helperShare, err := c.PrepInit(vk, &nonce, helperAggregatorID, publicShare, inputShare)
+	// The VDAF nonce is the report ID; Prio3Count's public share is empty.
+	state, helperShare, err := c.VerifyInit(vk[:], helperAggregatorID, reportID[:], vi.ReportShare.PublicShare, inputShare)
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
 
-	// Helper transition: combine the verifier shares (Leader's first), then
-	// finish. A combine failure is a failed VDAF verification.
-	prepMsg, err := c.PrepSharesToPrep([]prio3.CountPrepShare{leaderShare, *helperShare})
+	// Helper transition: combine the verifier shares (Leader's first) and check
+	// the proof. A failure is a failed VDAF verification.
+	verifierMsg, err := c.VerifierSharesToMessage([]*prio3.VerifierShare{leaderShare, helperShare})
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
-	outShare, err := c.PrepNext(prepState, prepMsg)
+	outShare, err := c.VerifyNext(state, verifierMsg)
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
 	}
 
-	// Single-round VDAF: FinishedWithOutbound. The outbound is a framed
-	// finish message carrying the verifier message (empty for Prio3Count).
-	prepMsgBytes, err := prepMsg.MarshalBinary()
-	if err != nil {
-		return reject(wire.ReportErrorVdafVerifyError)
-	}
-	outbound := wire.PingPongMessage{Type: wire.PingPongFinish, VerifierMessage: prepMsgBytes}
+	// Single-round VDAF: FinishedWithOutbound. The outbound is a framed finish
+	// message carrying the verifier message (empty for Prio3Count).
+	outbound := wire.PingPongMessage{Type: wire.PingPongFinish, VerifierMessage: verifierMsg}
 	outboundBytes, err := outbound.MarshalBinary()
 	if err != nil {
 		return reject(wire.ReportErrorVdafVerifyError)
@@ -277,7 +271,7 @@ func aggregateInit(task *Task, vk *prio3.CountVerifyKey, vi wire.VerifyInit, ord
 
 // buildInitJob runs aggregateInit over every report in the request and assembles
 // the job record plus the response, preserving request order.
-func buildInitJob(task *Task, vk *prio3.CountVerifyKey, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
+func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
 	job := &AggregationJob{
 		TaskID:           task.TaskID,
 		AggregationJobID: jobID,

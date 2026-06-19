@@ -129,7 +129,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		return
 	}
 
-	job := buildInitJob(task, &vk, jobID, &req, reqHash)
+	job := buildInitJob(task, vk, jobID, &req, reqHash)
 	if err := h.store.PutJob(job); err != nil {
 		// Lost a race with a concurrent identical create.
 		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
