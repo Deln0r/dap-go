@@ -30,14 +30,27 @@ b64url() { python3 -c "import sys,base64;sys.stdout.write(base64.urlsafe_b64enco
 randb64() { head -c "$1" /dev/urandom | b64url; }
 
 HELPER_PID=""
+DEBUG="${DEBUG:-0}"
 cleanup() {
+  rc=$?
   set +e
+  if [ "$rc" != 0 ]; then
+    echo "== FAILED (rc=$rc); leader aggregation/error logs ==" >&2
+    docker logs leader 2>&1 | grep -iE "aggregat|abandon|error|warn|helper|reject|fail" | tail -40 | sed 's/^/  /' >&2
+  fi
   [ -n "$HELPER_PID" ] && kill "$HELPER_PID" 2>/dev/null
   docker rm -f leader client collector >/dev/null 2>&1
   docker network rm "$NET" >/dev/null 2>&1
-  set -e
 }
 trap cleanup EXIT
+
+# checked POST: print the response, fail loudly if .status != success.
+cpost() { # url body
+  local resp; resp=$(curl -fsS -X POST "$1" -H 'content-type: application/json' -d "$2" 2>&1) || { echo "HTTP error POST $1: $resp" >&2; return 1; }
+  [ "$DEBUG" = 1 ] && echo "resp($1): $resp" >&2
+  if [ "$(echo "$resp" | jq -r '.status // "ok"')" = "error" ]; then echo "error POST $1: $resp" >&2; return 1; fi
+  echo "$resp"
+}
 
 echo "== build + start dap-helper (host :$HELPER_PORT) =="
 ( cd "$REPO_ROOT" && go build -o /tmp/dap-helper ./cmd/dap-helper )
@@ -100,9 +113,9 @@ post "http://localhost:$HELPER_PORT/internal/test/add_task" "$(addtask_body help
 
 echo "== upload ${#MEASUREMENTS[@]} measurements =="
 for m in "${MEASUREMENTS[@]}"; do
-  post "http://localhost:$CLIENT_PORT/internal/test/upload" \
-    "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" --argjson m "$m" --argjson tp "$TIME_PRECISION" \
-       '{task_id:$t,leader:$l,helper:$h,vdaf:$v,measurement:$m,time_precision:$tp}')" | jq -e '.status=="success"' >/dev/null
+  cpost "http://localhost:$CLIENT_PORT/internal/test/upload" \
+    "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" --arg m "$m" --argjson tp "$TIME_PRECISION" \
+       '{task_id:$t,leader:$l,helper:$h,vdaf:$v,measurement:$m,time_precision:$tp}')" >/dev/null
 done
 
 echo "== collection_start =="

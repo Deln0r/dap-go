@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -203,7 +204,24 @@ func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID
 		h.writeProblem(w, http.StatusConflict, "invalidMessage", "aggregation job already exists with different content")
 		return
 	}
+	logJobResult("janus-init", job)
 	h.writeResp(w, taskID, jobID, &job.Response, http.StatusOK)
+}
+
+// logJobResult logs the per-report outcome of an aggregation job for smoke
+// debugging.
+func logJobResult(tag string, job *AggregationJob) {
+	for i := range job.Response.VerifyResps {
+		vr := job.Response.VerifyResps[i]
+		switch vr.Type {
+		case wire.VerifyRespReject:
+			log.Printf("%s: report %x REJECT report_error=%d", tag, vr.ReportID[:4], vr.Error)
+		case wire.VerifyRespContinue:
+			log.Printf("%s: report %x continue (%d-byte payload)", tag, vr.ReportID[:4], len(vr.Payload))
+		default:
+			log.Printf("%s: report %x type=%d", tag, vr.ReportID[:4], vr.Type)
+		}
+	}
 }
 
 func (h *Handler) handleGet(w http.ResponseWriter, taskID wire.TaskID, jobID [16]byte) {

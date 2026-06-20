@@ -280,7 +280,7 @@ func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Variant
 		LastRequestHash:  reqHash,
 	}
 	job.ReportAggs = make([]*ReportAggregation, len(req.VerifyInits))
-	resp := wire.AggregationJobResp{VerifyResps: make([]wire.VerifyResp, len(req.VerifyInits))}
+	resp := wire.AggregationJobResp{Variant: variant, VerifyResps: make([]wire.VerifyResp, len(req.VerifyInits))}
 	for i := range req.VerifyInits {
 		vr, ra := aggregateInit(task, vk, variant, req.VerifyInits[i], uint64(i))
 		job.ReportAggs[i] = ra

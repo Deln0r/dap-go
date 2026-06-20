@@ -104,9 +104,11 @@ type VerifyResp struct {
 }
 
 // AggregationJobResp is the Helper's response to both init and continue
-// (DAP-18 §4.5.3.2). VerifyResps has no on-wire length prefix; it is the whole
-// message body. Its entries must match the request's report IDs in order.
+// (DAP-18 §4.5.3.2). Its entries must match the request's report IDs in order.
+// In VariantDraft18 VerifyResps has no on-wire length prefix (it is the whole
+// message body); in VariantJanus it is wrapped in a uint32 byte-length prefix.
 type AggregationJobResp struct {
+	Variant     Variant
 	VerifyResps []VerifyResp
 }
 
@@ -190,14 +192,24 @@ func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
 		if err := a.PartBatchSelector.Marshal(b); err != nil {
 			return err
 		}
-	} else {
-		b.AddUint8(a.VerificationKeyID)
+		// Janus wraps verify_inits in a uint32 byte-length prefix.
+		var verr error
 		b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
-			child.AddBytes(a.AggParam)
+			for i := range a.VerifyInits {
+				if err := a.VerifyInits[i].Marshal(child); err != nil {
+					verr = err
+					return
+				}
+			}
 		})
-		marshalAggJobExtVec(b, a.Extensions)
+		return verr
 	}
-	// VerifyInits: implicit-length vector, no outer prefix (both variants).
+	b.AddUint8(a.VerificationKeyID)
+	b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
+		child.AddBytes(a.AggParam)
+	})
+	marshalAggJobExtVec(b, a.Extensions)
+	// Draft-18: verify_inits is the implicit-length remainder, no outer prefix.
 	for i := range a.VerifyInits {
 		if err := a.VerifyInits[i].Marshal(b); err != nil {
 			return err
@@ -207,10 +219,7 @@ func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
 }
 
 func (a *AggregationJobInitReq) Unmarshal(s *cryptobyte.String) bool {
-	// verify_inits is the implicit-length remainder; positional cryptobyte
-	// decode is correct without computing its length by hand (and sidesteps the
-	// off-by-one in the draft-18 prose, which omits the verification_key_id
-	// byte). The Variant must be set on the receiver before decoding.
+	// The Variant must be set on the receiver before decoding.
 	if a.Variant == VariantJanus {
 		var aggParam cryptobyte.String
 		if !readUint32LengthPrefixed(s, &aggParam) {
@@ -220,21 +229,38 @@ func (a *AggregationJobInitReq) Unmarshal(s *cryptobyte.String) bool {
 		if !a.PartBatchSelector.Unmarshal(s) {
 			return false
 		}
-	} else {
-		if !s.ReadUint8(&a.VerificationKeyID) {
+		// Janus wraps verify_inits in a uint32 byte-length prefix.
+		var vinits cryptobyte.String
+		if !readUint32LengthPrefixed(s, &vinits) {
 			return false
 		}
-		var aggParam cryptobyte.String
-		if !readUint32LengthPrefixed(s, &aggParam) {
-			return false
+		a.VerifyInits = nil
+		for !vinits.Empty() {
+			var vi VerifyInit
+			if !vi.Unmarshal(&vinits) {
+				return false
+			}
+			a.VerifyInits = append(a.VerifyInits, vi)
 		}
-		a.AggParam = cloneBytes(aggParam)
-		exts, ok := unmarshalAggJobExtVec(s)
-		if !ok {
-			return false
-		}
-		a.Extensions = exts
+		return true
 	}
+
+	// Draft-18: verify_inits is the implicit-length remainder. Positional decode
+	// sidesteps the off-by-one in the draft prose (it omits the
+	// verification_key_id byte from the verify_inits_length).
+	if !s.ReadUint8(&a.VerificationKeyID) {
+		return false
+	}
+	var aggParam cryptobyte.String
+	if !readUint32LengthPrefixed(s, &aggParam) {
+		return false
+	}
+	a.AggParam = cloneBytes(aggParam)
+	exts, ok := unmarshalAggJobExtVec(s)
+	if !ok {
+		return false
+	}
+	a.Extensions = exts
 	a.VerifyInits = nil
 	for !s.Empty() {
 		var vi VerifyInit
@@ -306,7 +332,20 @@ func (v *VerifyResp) UnmarshalBinary(b []byte) error { return unmarshalAll(v, b)
 // ---- AggregationJobResp ----
 
 func (a *AggregationJobResp) Marshal(b *cryptobyte.Builder) error {
-	// VerifyResps: implicit-length vector, no outer prefix.
+	if a.Variant == VariantJanus {
+		// Janus wraps verify_resps in a uint32 byte-length prefix.
+		var verr error
+		b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
+			for i := range a.VerifyResps {
+				if err := a.VerifyResps[i].Marshal(child); err != nil {
+					verr = err
+					return
+				}
+			}
+		})
+		return verr
+	}
+	// Draft-18: implicit-length vector, no outer prefix.
 	for i := range a.VerifyResps {
 		if err := a.VerifyResps[i].Marshal(b); err != nil {
 			return err
@@ -317,6 +356,20 @@ func (a *AggregationJobResp) Marshal(b *cryptobyte.Builder) error {
 
 func (a *AggregationJobResp) Unmarshal(s *cryptobyte.String) bool {
 	a.VerifyResps = nil
+	if a.Variant == VariantJanus {
+		var vresps cryptobyte.String
+		if !readUint32LengthPrefixed(s, &vresps) {
+			return false
+		}
+		for !vresps.Empty() {
+			var vr VerifyResp
+			if !vr.Unmarshal(&vresps) {
+				return false
+			}
+			a.VerifyResps = append(a.VerifyResps, vr)
+		}
+		return true
+	}
 	for !s.Empty() {
 		var vr VerifyResp
 		if !vr.Unmarshal(s) {
