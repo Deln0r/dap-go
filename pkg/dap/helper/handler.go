@@ -58,8 +58,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resource URL: poll, continue, or delete an existing job.
+	// Resource URL: init (Janus variant), poll, continue, or delete a job.
 	switch r.Method {
+	case http.MethodPut:
+		// Janus-variant init: the Leader chose the job ID and PUTs here.
+		h.handleJanusInit(w, r, taskID, jobID)
 	case http.MethodGet:
 		h.handleGet(w, taskID, jobID)
 	case http.MethodPost:
@@ -69,7 +72,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.store.DeleteJob(taskID, jobID)
 		w.WriteHeader(http.StatusOK)
 	default:
-		w.Header().Set("Allow", "POST, GET, DELETE")
+		w.Header().Set("Allow", "PUT, POST, GET, DELETE")
 		h.writeProblem(w, http.StatusMethodNotAllowed, "unrecognizedMessage", "unsupported method on the aggregation job resource")
 	}
 }
@@ -129,9 +132,70 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		return
 	}
 
-	job := buildInitJob(task, vk, jobID, &req, reqHash)
+	job := buildInitJob(task, vk, wire.VariantDraft18, jobID, &req, reqHash)
 	if err := h.store.PutJob(job); err != nil {
 		// Lost a race with a concurrent identical create.
+		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
+			h.writeResp(w, taskID, jobID, &existing.Response, http.StatusOK)
+			return
+		}
+		h.writeProblem(w, http.StatusConflict, "invalidMessage", "aggregation job already exists with different content")
+		return
+	}
+	h.writeResp(w, taskID, jobID, &job.Response, http.StatusOK)
+}
+
+// handleJanusInit serves the Janus-variant aggregation-job initialization: a PUT
+// to the resource URL with a Leader-chosen job ID, the AggregationJobInitReq in
+// the VariantJanus shape ({agg_param, partial_batch_selector, verify_inits}, no
+// verification_key_id), and the 3-field input-share AAD. See INTEROP_FINDINGS.
+func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID wire.TaskID, jobID [16]byte) {
+	task, ok := h.store.GetTask(taskID)
+	if !ok {
+		h.writeProblem(w, http.StatusBadRequest, "unrecognizedTask", "no such task")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if err != nil {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "cannot read request body")
+		return
+	}
+
+	req := wire.AggregationJobInitReq{Variant: wire.VariantJanus}
+	if err := req.UnmarshalBinary(body); err != nil {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "malformed AggregationJobInitReq")
+		return
+	}
+	if len(req.AggParam) != 0 {
+		h.writeProblem(w, http.StatusBadRequest, "invalidAggregationParameter", "Prio3Count takes no aggregation parameter")
+		return
+	}
+	if hasDuplicateReportIDs(req.VerifyInits) {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "duplicate report IDs in request")
+		return
+	}
+	// Janus carries no verification_key_id; the task's single key is registered
+	// under id 0.
+	vk, ok := task.VerifyKeys[0]
+	if !ok {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "task has no verification key")
+		return
+	}
+
+	reqHash := hashBody(body)
+	// The job ID is Leader-chosen (taken from the URL), not derived.
+	if existing, ok := h.store.GetJob(taskID, jobID); ok {
+		if existing.LastRequestHash == reqHash {
+			h.writeResp(w, taskID, jobID, &existing.Response, http.StatusOK)
+			return
+		}
+		h.writeProblem(w, http.StatusConflict, "invalidMessage", "aggregation job already exists with different content")
+		return
+	}
+
+	job := buildInitJob(task, vk, wire.VariantJanus, jobID, &req, reqHash)
+	if err := h.store.PutJob(job); err != nil {
 		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
 			h.writeResp(w, taskID, jobID, &existing.Response, http.StatusOK)
 			return
