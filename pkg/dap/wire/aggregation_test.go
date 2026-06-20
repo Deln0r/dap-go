@@ -213,3 +213,62 @@ func TestInputShareAad_RoundTrip(t *testing.T) {
 		t.Fatalf("InputShareAad task_configuration round-trip mismatch")
 	}
 }
+
+func TestAggregationJobInitReq_JanusVariant(t *testing.T) {
+	req := AggregationJobInitReq{
+		Variant:           VariantJanus,
+		PartBatchSelector: PartialBatchSelector{BatchMode: BatchModeLeaderSelected, Config: mustHex(t, "0011")},
+		VerifyInits: []VerifyInit{
+			{ReportShare: sampleReportShare(t, 0x01), Payload: mustHex(t, "aa")},
+			{ReportShare: sampleReportShare(t, 0x02), Payload: mustHex(t, "bbbb")},
+		},
+	}
+	enc, err := req.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := AggregationJobInitReq{Variant: VariantJanus}
+	if err := dec.UnmarshalBinary(enc); err != nil {
+		t.Fatal(err)
+	}
+	if dec.PartBatchSelector.BatchMode != BatchModeLeaderSelected ||
+		!bytes.Equal(dec.PartBatchSelector.Config, mustHex(t, "0011")) {
+		t.Fatalf("janus partial_batch_selector mismatch: %+v", dec.PartBatchSelector)
+	}
+	if len(dec.VerifyInits) != 2 {
+		t.Fatalf("want 2 verify_inits, got %d", len(dec.VerifyInits))
+	}
+	// The first Janus byte is the agg_param length prefix (0x00000000 here), not
+	// a verification_key_id, so the two variants encode differently.
+	if enc[0] != 0x00 {
+		t.Fatalf("janus encoding should lead with the agg_param uint32 length")
+	}
+}
+
+func TestInputShareAad_JanusVariant_OmitsTaskConfig(t *testing.T) {
+	var tid TaskID
+	for i := range tid {
+		tid[i] = byte(i)
+	}
+	meta := ReportMetadata{ReportID: ReportID{0xFF}, Time: 42}
+	janus := InputShareAad{Variant: VariantJanus, TaskID: tid, TaskConfiguration: sampleTaskConfig(), ReportMetadata: meta, PublicShare: mustHex(t, "0a0b")}
+	draft := InputShareAad{Variant: VariantDraft18, TaskID: tid, TaskConfiguration: sampleTaskConfig(), ReportMetadata: meta, PublicShare: mustHex(t, "0a0b")}
+	je, err := janus.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	de, err := draft.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(je) >= len(de) {
+		t.Fatalf("janus AAD (%d) must be shorter than draft-18 AAD (%d)", len(je), len(de))
+	}
+	dec := InputShareAad{Variant: VariantJanus}
+	if err := dec.UnmarshalBinary(je); err != nil {
+		t.Fatal(err)
+	}
+	if dec.TaskID != tid || dec.ReportMetadata.Time != 42 || !bytes.Equal(dec.PublicShare, mustHex(t, "0a0b")) {
+		t.Fatalf("janus AAD round-trip mismatch")
+	}
+}

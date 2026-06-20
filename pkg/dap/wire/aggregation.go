@@ -72,16 +72,24 @@ type VerifyInit struct {
 	Payload     []byte
 }
 
-// AggregationJobInitReq is the body that creates an aggregation job
-// (DAP-18 §4.5.3.1). Draft-18 reshaped it: verification_key_id was prepended,
-// PartialBatchSelector was removed, and a typed AggregationJobExtension vector
-// took its place (the leader-selected batch ID now travels as an extension,
-// §5.2.2). VerifyInits has no on-wire length prefix; it consumes the remainder
-// of the message after VerificationKeyID, AggParam and Extensions.
+// AggregationJobInitReq is the body that creates an aggregation job. Its shape
+// depends on Variant (which Unmarshal reads from the receiver, so callers set it
+// before decoding):
+//
+//   - VariantDraft18 (§4.5.3.1): {verification_key_id, agg_param, extensions,
+//     verify_inits}. Draft-18 prepended verification_key_id and replaced
+//     PartialBatchSelector with a typed AggregationJobExtension vector (§5.2.2).
+//   - VariantJanus: {agg_param, partial_batch_selector, verify_inits}, the shape
+//     Janus main implements under "dap-18".
+//
+// VerifyInits has no on-wire length prefix in either variant; it consumes the
+// remainder of the message.
 type AggregationJobInitReq struct {
-	VerificationKeyID uint8
+	Variant           Variant
+	VerificationKeyID uint8 // draft-18 only
 	AggParam          []byte
-	Extensions        []AggregationJobExtension
+	Extensions        []AggregationJobExtension // draft-18 only
+	PartBatchSelector PartialBatchSelector      // Janus only
 	VerifyInits       []VerifyInit
 }
 
@@ -108,8 +116,9 @@ type AggregationJobResp struct {
 // which changes the AAD bytes for every input share even though the Report
 // itself is unchanged.
 type InputShareAad struct {
+	Variant           Variant
 	TaskID            TaskID
-	TaskConfiguration TaskConfiguration
+	TaskConfiguration TaskConfiguration // draft-18 only (omitted in VariantJanus)
 	ReportMetadata    ReportMetadata
 	PublicShare       []byte
 }
@@ -174,12 +183,21 @@ func (v *VerifyInit) UnmarshalBinary(b []byte) error { return unmarshalAll(v, b)
 // ---- AggregationJobInitReq ----
 
 func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
-	b.AddUint8(a.VerificationKeyID)
-	b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
-		child.AddBytes(a.AggParam)
-	})
-	marshalAggJobExtVec(b, a.Extensions)
-	// VerifyInits: implicit-length vector, no outer prefix.
+	if a.Variant == VariantJanus {
+		b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
+			child.AddBytes(a.AggParam)
+		})
+		if err := a.PartBatchSelector.Marshal(b); err != nil {
+			return err
+		}
+	} else {
+		b.AddUint8(a.VerificationKeyID)
+		b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
+			child.AddBytes(a.AggParam)
+		})
+		marshalAggJobExtVec(b, a.Extensions)
+	}
+	// VerifyInits: implicit-length vector, no outer prefix (both variants).
 	for i := range a.VerifyInits {
 		if err := a.VerifyInits[i].Marshal(b); err != nil {
 			return err
@@ -189,25 +207,34 @@ func (a *AggregationJobInitReq) Marshal(b *cryptobyte.Builder) error {
 }
 
 func (a *AggregationJobInitReq) Unmarshal(s *cryptobyte.String) bool {
-	// verify_inits_length is implicit: it is the remainder after the
-	// length-prefixed agg_param and extensions fields. Because cryptobyte
-	// consumes positionally, the loop below is correct without computing it by
-	// hand. (Note: the DAP-18 §4.5.3.1 prose describing verify_inits_length
-	// omits the leading verification_key_id byte; a literal length subtraction
-	// from those words would be off by one. Positional decode sidesteps that.)
-	if !s.ReadUint8(&a.VerificationKeyID) {
-		return false
+	// verify_inits is the implicit-length remainder; positional cryptobyte
+	// decode is correct without computing its length by hand (and sidesteps the
+	// off-by-one in the draft-18 prose, which omits the verification_key_id
+	// byte). The Variant must be set on the receiver before decoding.
+	if a.Variant == VariantJanus {
+		var aggParam cryptobyte.String
+		if !readUint32LengthPrefixed(s, &aggParam) {
+			return false
+		}
+		a.AggParam = cloneBytes(aggParam)
+		if !a.PartBatchSelector.Unmarshal(s) {
+			return false
+		}
+	} else {
+		if !s.ReadUint8(&a.VerificationKeyID) {
+			return false
+		}
+		var aggParam cryptobyte.String
+		if !readUint32LengthPrefixed(s, &aggParam) {
+			return false
+		}
+		a.AggParam = cloneBytes(aggParam)
+		exts, ok := unmarshalAggJobExtVec(s)
+		if !ok {
+			return false
+		}
+		a.Extensions = exts
 	}
-	var aggParam cryptobyte.String
-	if !readUint32LengthPrefixed(s, &aggParam) {
-		return false
-	}
-	a.AggParam = cloneBytes(aggParam)
-	exts, ok := unmarshalAggJobExtVec(s)
-	if !ok {
-		return false
-	}
-	a.Extensions = exts
 	a.VerifyInits = nil
 	for !s.Empty() {
 		var vi VerifyInit
@@ -309,8 +336,10 @@ func (i *InputShareAad) Marshal(b *cryptobyte.Builder) error {
 	if err := i.TaskID.Marshal(b); err != nil {
 		return err
 	}
-	if err := i.TaskConfiguration.Marshal(b); err != nil {
-		return err
+	if i.Variant != VariantJanus {
+		if err := i.TaskConfiguration.Marshal(b); err != nil {
+			return err
+		}
 	}
 	if err := i.ReportMetadata.Marshal(b); err != nil {
 		return err
@@ -325,8 +354,10 @@ func (i *InputShareAad) Unmarshal(s *cryptobyte.String) bool {
 	if !i.TaskID.Unmarshal(s) {
 		return false
 	}
-	if !i.TaskConfiguration.Unmarshal(s) {
-		return false
+	if i.Variant != VariantJanus {
+		if !i.TaskConfiguration.Unmarshal(s) {
+			return false
+		}
 	}
 	if !i.ReportMetadata.Unmarshal(s) {
 		return false

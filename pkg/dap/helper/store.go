@@ -17,6 +17,10 @@ var ErrJobMutation = errors.New("dap/helper: aggregation job already exists with
 // v0.1 ships a single in-memory implementation; the interface leaves room for a
 // durable (e.g. Postgres) store at v1.0.
 type Store interface {
+	// AddTask registers (or replaces) a task. A real Helper learns tasks at
+	// runtime (e.g. via a control API), so the store must accept them after
+	// construction.
+	AddTask(task *Task)
 	// GetTask returns the task configuration for taskID, if registered.
 	GetTask(taskID wire.TaskID) (*Task, bool)
 	// GetJob returns the aggregation job under (taskID, jobID), if present.
@@ -53,6 +57,12 @@ func NewMemStore(tasks ...*Task) Store {
 		m.tasks[t.TaskID] = t
 	}
 	return m
+}
+
+func (m *memStore) AddTask(task *Task) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tasks[task.TaskID] = task
 }
 
 func (m *memStore) GetTask(taskID wire.TaskID) (*Task, bool) {
