@@ -53,9 +53,23 @@ var hpkeInputShareInfoPrefix = []byte("dap-18 input share")
 // Role code points from the DAP-18 Role enum (collector(0), client(1),
 // leader(2), helper(3)).
 const (
-	roleClient uint8 = 1
-	roleHelper uint8 = 3
+	roleCollector uint8 = 0
+	roleClient    uint8 = 1
+	roleHelper    uint8 = 3
 )
+
+// hpkeAggregateShareInfoPrefix is the version-bound prefix of the HPKE info
+// string for an aggregate share (§4.6.7): "dap-18 aggregate share" ||
+// sender_role || recipient_role. The Helper seals to the Collector, so the
+// trailing bytes are helper(0x03) then collector(0x00).
+var hpkeAggregateShareInfoPrefix = []byte("dap-18 aggregate share")
+
+func aggregateShareInfo() []byte {
+	info := make([]byte, 0, len(hpkeAggregateShareInfoPrefix)+2)
+	info = append(info, hpkeAggregateShareInfoPrefix...)
+	info = append(info, roleHelper, roleCollector)
+	return info
+}
 
 // helperInputShareInfo returns the HPKE info used to seal/open the Helper's
 // input share.
@@ -108,6 +122,11 @@ type Task struct {
 	HPKEConfigID   wire.HpkeConfigID
 	HPKEPublicKey  []byte
 	HPKEPrivateKey []byte
+	// Collector HPKE configuration, used to seal the aggregate share at
+	// collection time (§4.6.4 / §4.6.7).
+	CollectorHPKESuite     hpke.Suite
+	CollectorHPKEConfigID  wire.HpkeConfigID
+	CollectorHPKEPublicKey []byte
 }
 
 // ReportAggState is the per-report aggregation state. In the ping-pong

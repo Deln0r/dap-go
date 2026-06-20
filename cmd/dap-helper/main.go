@@ -47,15 +47,16 @@ const hpkeConfigListMediaType = "application/ppm-dap;message=hpke-config-list"
 // (interop_binaries AggregatorAddTaskRequest). Only the fields the Helper needs
 // are read.
 type aggregatorAddTaskRequest struct {
-	TaskID        string          `json:"task_id"`         // unpadded base64url
-	Leader        string          `json:"leader"`          // URL
-	Helper        string          `json:"helper"`          // URL
-	Vdaf          json.RawMessage `json:"vdaf"`            // {"type":"Prio3Count"}
-	Role          string          `json:"role"`            // "Leader" / "Helper"
-	VdafVerifyKey string          `json:"vdaf_verify_key"` // unpadded base64url
-	BatchMode     uint8           `json:"batch_mode"`
-	MinBatchSize  uint64          `json:"min_batch_size"`
-	TimePrecision uint64          `json:"time_precision"` // seconds
+	TaskID              string          `json:"task_id"`         // unpadded base64url
+	Leader              string          `json:"leader"`          // URL
+	Helper              string          `json:"helper"`          // URL
+	Vdaf                json.RawMessage `json:"vdaf"`            // {"type":"Prio3Count"}
+	Role                string          `json:"role"`            // "Leader" / "Helper"
+	VdafVerifyKey       string          `json:"vdaf_verify_key"` // unpadded base64url
+	BatchMode           uint8           `json:"batch_mode"`
+	MinBatchSize        uint64          `json:"min_batch_size"`
+	TimePrecision       uint64          `json:"time_precision"`        // seconds
+	CollectorHpkeConfig string          `json:"collector_hpke_config"` // unpadded base64url HpkeConfig
 }
 
 type addTaskResponse struct {
@@ -185,6 +186,20 @@ func (s *server) handleAddTask(w http.ResponseWriter, r *http.Request) {
 	var verifyKey helper.VerifyKey
 	copy(verifyKey[:], verifyKeyBytes)
 
+	// The collector HPKE config is needed to seal the aggregate share at
+	// collection time.
+	collBytes, err := base64.RawURLEncoding.DecodeString(req.CollectorHpkeConfig)
+	var collCfg wire.HpkeConfig
+	if err != nil || collCfg.UnmarshalBinary(collBytes) != nil {
+		writeJSON(w, http.StatusOK, addTaskResponse{Status: "error", Error: "invalid collector_hpke_config"})
+		return
+	}
+	collSuite := hpke.Suite{KEM: hpke.KEM(collCfg.KemID), KDF: hpke.KDF(collCfg.KdfID), AEAD: hpke.AEAD(collCfg.AeadID)}
+	if !collSuite.IsValid() {
+		writeJSON(w, http.StatusOK, addTaskResponse{Status: "error", Error: "unsupported collector HPKE suite"})
+		return
+	}
+
 	task := &helper.Task{
 		TaskID: taskID,
 		TaskConfig: wire.TaskConfiguration{
@@ -196,12 +211,15 @@ func (s *server) handleAddTask(w http.ResponseWriter, r *http.Request) {
 			BatchMode:      wire.BatchMode(req.BatchMode),
 			VdafType:       wire.VdafTypePrio3Count,
 		},
-		VDAFContext:    helper.DAPVDAFContext(taskID),
-		VerifyKeys:     map[uint8]helper.VerifyKey{0: verifyKey},
-		HPKESuite:      smokeSuite,
-		HPKEConfigID:   helperHpkeConfigID,
-		HPKEPublicKey:  s.hpkePublicKey,
-		HPKEPrivateKey: s.hpkePrivateKey,
+		VDAFContext:            helper.DAPVDAFContext(taskID),
+		VerifyKeys:             map[uint8]helper.VerifyKey{0: verifyKey},
+		HPKESuite:              smokeSuite,
+		HPKEConfigID:           helperHpkeConfigID,
+		HPKEPublicKey:          s.hpkePublicKey,
+		HPKEPrivateKey:         s.hpkePrivateKey,
+		CollectorHPKESuite:     collSuite,
+		CollectorHPKEConfigID:  collCfg.ID,
+		CollectorHPKEPublicKey: collCfg.PublicKey,
 	}
 	s.store.AddTask(task)
 

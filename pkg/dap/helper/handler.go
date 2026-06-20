@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -8,14 +9,17 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Deln0r/dap-go/internal/hpke"
 	"github.com/Deln0r/dap-go/pkg/dap/wire"
+	"github.com/Deln0r/dap-go/pkg/vdaf/field"
 )
 
 // Media types for the DAP-18 aggregation sub-protocol (§4.5).
 const (
-	mediaInitReq     = "application/ppm-dap;message=aggregation-job-init-req"
-	mediaContinueReq = "application/ppm-dap;message=aggregation-job-continue-req"
-	mediaResp        = "application/ppm-dap;message=aggregation-job-resp"
+	mediaInitReq        = "application/ppm-dap;message=aggregation-job-init-req"
+	mediaContinueReq    = "application/ppm-dap;message=aggregation-job-continue-req"
+	mediaResp           = "application/ppm-dap;message=aggregation-job-resp"
+	mediaAggregateShare = "application/ppm-dap;message=aggregate-share"
 )
 
 // errorURNPrefix is the RFC 9457 problem-document type prefix for DAP errors.
@@ -42,6 +46,20 @@ func NewHandler(store Store) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Aggregate-share resource: /tasks/{task-id}/aggregate_shares/{id} (§4.6.4).
+	if shareTaskID, ok := parseAggregateSharePath(r.URL.Path); ok {
+		switch r.Method {
+		case http.MethodPut:
+			h.handleAggregateShare(w, r, shareTaskID)
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.Header().Set("Allow", "PUT, DELETE")
+			h.writeProblem(w, http.StatusMethodNotAllowed, "unrecognizedMessage", "unsupported method on the aggregate share resource")
+		}
+		return
+	}
+
 	taskID, jobID, hasJobID, ok := parseAggregationPath(r.URL.Path)
 	if !ok {
 		h.writeProblem(w, http.StatusNotFound, "unrecognizedTask", "malformed aggregation job path")
@@ -324,6 +342,98 @@ func hasDuplicateReportIDs(vis []wire.VerifyInit) bool {
 		seen[id] = struct{}{}
 	}
 	return false
+}
+
+// handleAggregateShare answers an AggregateShareReq (§4.6.4): it sums the
+// Helper's committed output shares for the task into an aggregate share, seals
+// it to the Collector's HPKE configuration under the AggregateShareAad, and
+// returns an AggregateShare. For the smoke this aggregates every committed
+// report (a single batch); batch selection, report-count and checksum
+// verification are collection-path concerns not implemented here.
+func (h *Handler) handleAggregateShare(w http.ResponseWriter, r *http.Request, taskID wire.TaskID) {
+	task, ok := h.store.GetTask(taskID)
+	if !ok {
+		h.writeProblem(w, http.StatusBadRequest, "unrecognizedTask", "no such task")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if err != nil {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "cannot read request body")
+		return
+	}
+	var req wire.AggregateShareReq
+	if err := req.UnmarshalBinary(body); err != nil {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "malformed AggregateShareReq")
+		return
+	}
+
+	var agg []field.Elt
+	n := 0
+	for _, job := range h.store.JobsForTask(taskID) {
+		for _, ra := range job.ReportAggs {
+			if ra.State != StateFinished || ra.OutShare == nil {
+				continue
+			}
+			n++
+			if agg == nil {
+				agg = append([]field.Elt(nil), ra.OutShare...)
+				continue
+			}
+			sum, err := field.VecAdd(agg, ra.OutShare)
+			if err != nil {
+				h.writeProblem(w, http.StatusInternalServerError, "invalidMessage", "aggregate sum failed")
+				return
+			}
+			agg = sum
+		}
+	}
+	if agg == nil {
+		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "no aggregated reports for batch")
+		return
+	}
+
+	aad := wire.AggregateShareAad{TaskID: taskID, AggParam: req.AggParam, BatchSelector: req.BatchSelector}
+	aadBytes, err := aad.MarshalBinary()
+	if err != nil {
+		h.writeProblem(w, http.StatusInternalServerError, "invalidMessage", "cannot encode AggregateShareAad")
+		return
+	}
+	enc, ct, err := hpke.Seal(rand.Reader, task.CollectorHPKESuite, task.CollectorHPKEPublicKey,
+		aggregateShareInfo(), aadBytes, field.EncodeVec(agg))
+	if err != nil {
+		h.writeProblem(w, http.StatusInternalServerError, "invalidMessage", "cannot seal aggregate share")
+		return
+	}
+	resp := wire.AggregateShare{EncryptedAggregateShare: wire.HpkeCiphertext{
+		ConfigID: task.CollectorHPKEConfigID,
+		Enc:      enc,
+		Payload:  ct,
+	}}
+	out, err := resp.MarshalBinary()
+	if err != nil {
+		h.writeProblem(w, http.StatusInternalServerError, "invalidMessage", "cannot encode AggregateShare")
+		return
+	}
+	log.Printf("aggregate-share: summed %d committed out shares, sealed to collector", n)
+	w.Header().Set("Content-Type", mediaAggregateShare)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
+}
+
+// parseAggregateSharePath parses /tasks/{task-id}/aggregate_shares/{id} and
+// returns the task ID. The aggregate-share resource ID is not needed.
+func parseAggregateSharePath(p string) (wire.TaskID, bool) {
+	var taskID wire.TaskID
+	parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
+	if len(parts) != 4 || parts[0] != "tasks" || parts[2] != "aggregate_shares" {
+		return taskID, false
+	}
+	tb, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(tb) != len(taskID) {
+		return taskID, false
+	}
+	copy(taskID[:], tb)
+	return taskID, true
 }
 
 // resourcePath renders the aggregation-job resource URL path, with the task and

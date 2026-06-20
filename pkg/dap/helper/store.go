@@ -25,6 +25,10 @@ type Store interface {
 	GetTask(taskID wire.TaskID) (*Task, bool)
 	// GetJob returns the aggregation job under (taskID, jobID), if present.
 	GetJob(taskID wire.TaskID, jobID [16]byte) (*AggregationJob, bool)
+	// JobsForTask returns all aggregation jobs registered for taskID. The Helper
+	// uses it to gather committed output shares when answering an
+	// AggregateShareReq.
+	JobsForTask(taskID wire.TaskID) []*AggregationJob
 	// PutJob stores a new aggregation job. If a job already exists with the same
 	// (taskID, jobID) and an equal LastRequestHash, PutJob is a no-op and returns
 	// nil (the caller replays the stored response). If one exists with a
@@ -77,6 +81,18 @@ func (m *memStore) GetJob(taskID wire.TaskID, jobID [16]byte) (*AggregationJob, 
 	defer m.mu.RUnlock()
 	j, ok := m.jobs[jobKey{taskID, jobID}]
 	return j, ok
+}
+
+func (m *memStore) JobsForTask(taskID wire.TaskID) []*AggregationJob {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*AggregationJob
+	for k, j := range m.jobs {
+		if k.TaskID == taskID {
+			out = append(out, j)
+		}
+	}
+	return out
 }
 
 func (m *memStore) PutJob(job *AggregationJob) error {
