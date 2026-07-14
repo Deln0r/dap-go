@@ -225,3 +225,70 @@ func TestDecodeVerifierShare_RoundTrip(t *testing.T) {
 		t.Fatal("expected rejection of short verifier share")
 	}
 }
+
+// TestPrio3Count_MalformedShares extends the negative coverage to decode-time
+// robustness: a share must be rejected before it ever reaches the proof check.
+// These are hand-tampered from a valid vector (not the official success:false
+// vectors), Count only.
+func TestPrio3Count_MalformedShares(t *testing.T) {
+	v := load(t, "Prio3Count_0.json")
+	c, err := NewCount(v.Shares, v.Ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := v.Reports[0]
+	leader := append([]byte(nil), rep.InputShares[0]...)
+	helper := append([]byte(nil), rep.InputShares[1]...)
+
+	tamper := func(b []byte, mutate func([]byte)) []byte {
+		cp := append([]byte(nil), b...)
+		mutate(cp)
+		return cp
+	}
+	// 0xFF*8 little-endian is 2^64-1, which is >= the Field64 modulus, so it is a
+	// non-canonical element encoding (vdaf-18 §6.1.1 requires decoders to reject).
+	oor := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+
+	t.Run("truncated_leader_share", func(t *testing.T) {
+		if _, err := c.DecodeInputShare(0, leader[:len(leader)-1]); !errors.Is(err, ErrShareSize) {
+			t.Fatalf("want ErrShareSize, got %v", err)
+		}
+	})
+	t.Run("oversized_leader_share", func(t *testing.T) {
+		if _, err := c.DecodeInputShare(0, append(append([]byte(nil), leader...), 0x00)); !errors.Is(err, ErrShareSize) {
+			t.Fatalf("want ErrShareSize, got %v", err)
+		}
+	})
+	t.Run("truncated_helper_seed", func(t *testing.T) {
+		if _, err := c.DecodeInputShare(1, helper[:len(helper)-1]); !errors.Is(err, ErrShareSize) {
+			t.Fatalf("want ErrShareSize, got %v", err)
+		}
+	})
+	t.Run("out_of_range_measurement_element", func(t *testing.T) {
+		bad := tamper(leader, func(b []byte) { copy(b[:field.EncodedSize], oor) })
+		if _, err := c.DecodeInputShare(0, bad); !errors.Is(err, field.ErrNonCanonical) {
+			t.Fatalf("want field.ErrNonCanonical, got %v", err)
+		}
+	})
+	t.Run("out_of_range_proof_element", func(t *testing.T) {
+		bad := tamper(leader, func(b []byte) { copy(b[len(b)-field.EncodedSize:], oor) })
+		if _, err := c.DecodeInputShare(0, bad); !errors.Is(err, field.ErrNonCanonical) {
+			t.Fatalf("want field.ErrNonCanonical, got %v", err)
+		}
+	})
+	t.Run("wrong_proof_length_verifier_share", func(t *testing.T) {
+		in, err := c.DecodeInputShare(0, leader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, vs, err := c.VerifyInit(v.VerifyKey, 0, rep.Nonce, rep.PublicShare, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		enc := c.EncodeVerifierShare(vs)
+		tooLong := append(append([]byte(nil), enc...), make([]byte, field.EncodedSize)...)
+		if _, err := c.DecodeVerifierShare(tooLong); !errors.Is(err, ErrShareSize) {
+			t.Fatalf("want ErrShareSize, got %v", err)
+		}
+	})
+}
