@@ -4,7 +4,6 @@ A Go-language implementation of the IETF [Distributed Aggregation Protocol](http
 
 [![CI](https://github.com/Deln0r/dap-go/actions/workflows/test.yml/badge.svg)](https://github.com/Deln0r/dap-go/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Deln0r/dap-go.svg)](https://pkg.go.dev/github.com/Deln0r/dap-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Deln0r/dap-go)](https://goreportcard.com/report/github.com/Deln0r/dap-go)
 [![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)]()
