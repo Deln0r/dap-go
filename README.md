@@ -65,13 +65,31 @@ testdata/fixtures  CFRG VDAF test vectors (vdaf18)
 
 `cmd/dap-helper` is the interop-harness Helper binary the Janus smoke runs. `cmd/dap-client` is not built yet.
 
+## Development
+
+`make check` runs the full pre-commit gate (gofmt, `go vet`, `go test -race`, and golangci-lint); CI runs the same set. Lint uses golangci-lint v1 (the config is v1; Homebrew installs v2, see `make lint-install`). For a quick pass, `go test ./...`.
+
+### Running the Janus interop smoke
+
+`scripts/janus_smoke.sh` runs the cross-implementation smoke described under [Conformance](#conformance-and-interop). It needs `docker`, `jq`, `python3`, and the Janus interop images built from [divviup/janus](https://github.com/divviup/janus):
+
+```
+# in a divviup/janus checkout, using the default (release) profile
+docker buildx bake janus_interop_aggregator janus_interop_client janus_interop_collector --load
+
+# back in this repo
+scripts/janus_smoke.sh
+```
+
+The script starts the Janus Client, Leader, and Collector containers, runs the dap-go Helper on the host, aggregates the Prio3Count measurements `[1, 1, 0, 1]`, and checks that the Collector unshards the expected aggregate, `3`. Build the images with the default release profile: a `dev` cargo profile writes to `target/debug` and breaks the bake.
+
 ## Dependencies
 
 - [cloudflare/circl](https://github.com/cloudflare/circl) (BSD-3) for HPKE only (RFC 9180). The Prio3 VDAF is hand-written in `pkg/vdaf`, with no crypto dependency. (circl also ships a VDAF Prio3, currently at draft-14 and with no DAP layer; dap-go targets draft-18 and keeps the VDAF hand-written and dependency-free.)
 - [golang.org/x/crypto/cryptobyte](https://pkg.go.dev/golang.org/x/crypto/cryptobyte) for TLS-presentation-language encoding (transitive via circl).
 - Standard library only beyond that. No CGo.
 
-Spec targeting: dap-go implements draft-ietf-ppm-dap-18 and the draft-irtf-cfrg-vdaf-18 Prio3Count it references. The VERSION byte is unchanged on the vdaf-19 tag, so the implementation remains valid for draft-19.
+Spec targeting: dap-go implements draft-ietf-ppm-dap-18 and the draft-irtf-cfrg-vdaf-18 Prio3Count it references. The vdaf VERSION byte is unchanged through the later vdaf tags, so the Prio3 crypto stays valid. The published DAP draft is now -19; its message-level changes (a dedicated `unknown_verification_key_id` error, a trimmed `ReportError` set) are future work.
 
 ## Specifications
 
