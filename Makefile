@@ -5,7 +5,7 @@
 # go-version matrix differences.
 
 GO ?= go
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT_VERSION ?= v2.12.2
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2> /dev/null)
 
 .PHONY: check
@@ -38,7 +38,7 @@ ifndef GOLANGCI_LINT
 	@echo "golangci-lint not found on PATH."
 	@echo "Install matching CI version with:"
 	@echo "  $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"
-	@echo "(brew installs v2 by default; the project config is v1)"
+	@echo "(the project config targets golangci-lint v2)"
 	@exit 1
 else
 	$(GOLANGCI_LINT) run
