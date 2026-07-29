@@ -167,7 +167,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 // handleJanusInit serves the Janus-variant aggregation-job initialization: a PUT
 // to the resource URL with a Leader-chosen job ID, the AggregationJobInitReq in
 // the VariantJanus shape ({agg_param, partial_batch_selector, verify_inits}, no
-// verification_key_id), and the 3-field input-share AAD. See INTEROP_FINDINGS.
+// verification_key_id), and the 3-field input-share AAD. See docs/interop.md.
 func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID wire.TaskID, jobID [16]byte) {
 	task, ok := h.store.GetTask(taskID)
 	if !ok {

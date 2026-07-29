@@ -18,7 +18,7 @@ const (
 	// VariantDraft18 is the published draft-ietf-ppm-dap-18 wire format.
 	VariantDraft18 Variant = iota
 	// VariantJanus is the wire format Janus main implements under the "dap-18"
-	// identifier (see INTEROP_FINDINGS).
+	// identifier (see docs/interop.md).
 	VariantJanus
 )
 

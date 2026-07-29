@@ -8,7 +8,7 @@
 //   - the Helper HPKE config: GET /hpke_config (HpkeConfigList, §4.4.1)
 //   - the DAP aggregation sub-protocol under /tasks/... (pkg/dap/helper.Handler)
 //
-// Tasks are registered in the Janus "dap-18" wire variant (see INTEROP_FINDINGS),
+// Tasks are registered in the Janus "dap-18" wire variant (see docs/interop.md),
 // so the Helper accepts PUT-to-resource init with the 3-field input-share AAD.
 package main
 

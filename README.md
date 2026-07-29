@@ -60,6 +60,7 @@ pkg/vdaf         From-scratch draft-18 Prio3: turboshake, field, xof, flp, prio3
 internal/hpke    HPKE wrappers over cloudflare/circl/hpke
 cmd/dap-helper   Helper binary used by the Janus interop smoke
 scripts/janus_smoke.sh  Janus cross-implementation smoke (Prio3Count)
+docs/interop.md  Reproduction recipe + wire-format notes for the Janus smoke
 testdata/fixtures  CFRG VDAF test vectors (vdaf18)
 ```
 
@@ -74,7 +75,8 @@ testdata/fixtures  CFRG VDAF test vectors (vdaf18)
 `scripts/janus_smoke.sh` runs the cross-implementation smoke described under [Conformance](#conformance-and-interop). It needs `docker`, `jq`, `python3`, and the Janus interop images built from [divviup/janus](https://github.com/divviup/janus):
 
 ```
-# in a divviup/janus checkout, using the default (release) profile
+# in a divviup/janus checkout, at the pinned commit, default (release) profile
+git checkout c1531764d2fc0a05c64b722117004fd516e33a43
 docker buildx bake janus_interop_aggregator janus_interop_client janus_interop_collector --load
 
 # back in this repo
@@ -82,6 +84,8 @@ scripts/janus_smoke.sh
 ```
 
 The script starts the Janus Client, Leader, and Collector containers, runs the dap-go Helper on the host, aggregates the Prio3Count measurements `[1, 1, 0, 1]`, and checks that the Collector unshards the expected aggregate, `3`. Build the images with the default release profile: a `dev` cargo profile writes to `target/debug` and breaks the bake.
+
+Pin Janus to that commit: the smoke is verified against it, and Janus `main` has since been migrating toward the published draft-18 under the same `"dap-18"` identifier, so a newer build will not match the variant the smoke registers. [docs/interop.md](docs/interop.md) has the full recipe and the wire-format notes.
 
 ## Dependencies
 

@@ -5,11 +5,16 @@
 # play Client + Leader + Collector (known-good), and dap-go runs the Helper.
 # The only cross-implementation boundary is Leader <-> Helper, which is exactly
 # what we want to validate. The Helper is registered in the Janus "dap-18" wire
-# variant (see docs eb-1/dap-go/INTEROP_FINDINGS).
+# variant (see docs/interop.md).
 #
 # Usage: scripts/janus_smoke.sh
 # Requires: docker, jq, python3, and the janus_interop_{aggregator,client,collector}:latest
 # images (docker buildx bake janus_interop_aggregator janus_interop_client janus_interop_collector --load).
+#
+# Build those images from Janus commit c1531764 (18 Jun 2026). Janus main has
+# since been migrating toward the published draft-18 while keeping the same
+# "dap-18" version identifier, so a newer build will not match the Janus variant
+# this smoke registers. See docs/interop.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
