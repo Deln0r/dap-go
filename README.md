@@ -95,6 +95,34 @@ Pin Janus to that commit: the smoke is verified against it, and Janus `main` has
 
 Spec targeting: dap-go implements draft-ietf-ppm-dap-18 and the draft-irtf-cfrg-vdaf-18 Prio3Count it references. The vdaf VERSION byte is unchanged through the later vdaf tags, so the Prio3 crypto stays valid. The published DAP draft is now -19; its message-level changes (a dedicated `unknown_verification_key_id` error, a trimmed `ReportError` set) are future work.
 
+## Security posture
+
+This code has not been audited. It is an experimental implementation, and the
+paragraphs below describe what has and has not been done about side channels so
+that anyone evaluating it can judge the risk themselves.
+
+The Field64 arithmetic in `pkg/vdaf/field` is written to avoid operand-dependent
+branching: `Add`, `Sub`, `Neg`, and `Mul` use branchless reductions over
+`math/bits`, and `Inv` is a fixed square-and-multiply chain over the constant
+exponent `p-2`, so its running time does not depend on the value being inverted.
+That is a deliberate posture, not a proof: there is no formal verification, no
+fiat-crypto-derived code, and no measurement of what the Go compiler emits on any
+particular architecture. Correctness is established against `math/big` in the
+package tests and against the official CFRG vectors at the Prio3 layer.
+
+Two known places are not constant time by construction. Sampling field elements
+from the XOF (`pkg/vdaf/xof`) uses rejection sampling, so the number of
+iterations depends on the bytes drawn, as specified by draft-irtf-cfrg-vdaf.
+Proof verification rejects at the first failing proof rather than evaluating all
+of them.
+
+HPKE is delegated to `cloudflare/circl`, so its side-channel properties are
+whatever that library provides; they are not re-established here.
+
+Constant-time hardening, a review of the compiled output, and an external audit
+are future work. Until then, treat the timing behaviour of this implementation as
+unverified.
+
 ## Specifications
 
 - [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/)
