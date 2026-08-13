@@ -6,6 +6,7 @@
 
 GO ?= go
 GOLANGCI_LINT_VERSION ?= v2.12.2
+FUZZTIME ?= 30s
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2> /dev/null)
 
 .PHONY: check
@@ -43,6 +44,13 @@ ifndef GOLANGCI_LINT
 else
 	$(GOLANGCI_LINT) run
 endif
+
+.PHONY: fuzz
+fuzz:
+	@for t in FuzzReportShare FuzzTaskConfiguration FuzzAggregationJobInitReq; do \
+		echo "== $$t ($(FUZZTIME)) =="; \
+		$(GO) test -run '^$$' -fuzz="^$$t$$" -fuzztime=$(FUZZTIME) ./pkg/dap/wire/ || exit 1; \
+	done
 
 .PHONY: lint-install
 lint-install:

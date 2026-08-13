@@ -68,7 +68,9 @@ testdata/fixtures  CFRG VDAF test vectors (vdaf18)
 
 ## Development
 
-`make check` runs the full pre-commit gate (gofmt, `go vet`, `go test -race`, and golangci-lint); CI runs the same set. Lint uses golangci-lint v1 (the config is v1; Homebrew installs v2, see `make lint-install`). For a quick pass, `go test ./...`.
+`make check` runs the full pre-commit gate (gofmt, `go vet`, `go test -race`, and golangci-lint); CI runs the same set. The lint config targets golangci-lint v2 (`make lint-install` installs the pinned version). For a quick pass, `go test ./...`.
+
+`make fuzz` runs each wire-codec fuzz target in turn (`FUZZTIME=2m make fuzz` for a longer session). The checked-in seed corpus lives in `pkg/dap/wire/testdata/fuzz` and runs as part of the ordinary test suite; `GEN_CORPUS=1 go test -run TestGenCorpus ./pkg/dap/wire/` regenerates the golden seeds from the current fixtures.
 
 ### Running the Janus interop smoke
 
