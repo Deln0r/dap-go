@@ -46,6 +46,14 @@ type Suite struct {
 // registered code point.
 var ErrInvalidSuite = errors.New("hpke: invalid suite")
 
+// ErrKeySize is returned when a serialised key is not exactly the length the
+// KEM defines. RFC 9180 fixes Npk and Nsk per KEM, and DAP carries these keys
+// on the wire (HpkeConfig.public_key is an opaque vector), so the length is
+// checked here rather than left to the underlying library: circl accepts a
+// longer input and silently ignores the trailing bytes, which would make two
+// different encodings behave as the same key.
+var ErrKeySize = errors.New("hpke: incorrect key length for the KEM")
+
 // IsValid reports whether the suite's three algorithm identifiers are
 // all registered values supported by the underlying circl library.
 func (s Suite) IsValid() bool {
@@ -96,7 +104,11 @@ func Seal(
 	if !suite.IsValid() {
 		return nil, nil, ErrInvalidSuite
 	}
-	pub, err := suite.KEM.Scheme().UnmarshalBinaryPublicKey(recipientPublicKey)
+	scheme := suite.KEM.Scheme()
+	if len(recipientPublicKey) != scheme.PublicKeySize() {
+		return nil, nil, ErrKeySize
+	}
+	pub, err := scheme.UnmarshalBinaryPublicKey(recipientPublicKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,7 +138,11 @@ func Open(
 	if !suite.IsValid() {
 		return nil, ErrInvalidSuite
 	}
-	priv, err := suite.KEM.Scheme().UnmarshalBinaryPrivateKey(recipientPrivateKey)
+	scheme := suite.KEM.Scheme()
+	if len(recipientPrivateKey) != scheme.PrivateKeySize() {
+		return nil, ErrKeySize
+	}
+	priv, err := scheme.UnmarshalBinaryPrivateKey(recipientPrivateKey)
 	if err != nil {
 		return nil, err
 	}
