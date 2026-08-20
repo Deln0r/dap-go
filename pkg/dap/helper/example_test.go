@@ -35,3 +35,31 @@ func ExampleNewHandler() {
 	mux.Handle("/", h) // h satisfies http.Handler
 	_ = mux
 }
+
+// ExampleNewMemStore shows the Helper's task registry. A real Helper learns
+// tasks at runtime, so the store accepts them after construction; each task
+// carries the VDAF verification keyring the Leader selects from by id, and the
+// exact TaskConfiguration bytes the Client sealed under (draft-18 binds those
+// into the input-share HPKE AAD, so a mismatch fails every decryption).
+func ExampleNewMemStore() {
+	store := helper.NewMemStore()
+
+	taskID := wire.TaskID{0x01}
+	store.AddTask(&helper.Task{
+		TaskID:      taskID,
+		VDAFContext: helper.DAPVDAFContext(taskID),
+		VerifyKeys: map[uint8]helper.VerifyKey{
+			0: {}, // key id 0, prearranged with the Leader
+		},
+	})
+
+	task, ok := store.GetTask(taskID)
+	if !ok {
+		fmt.Println("task not registered")
+		return
+	}
+	_, unknown := store.GetTask(wire.TaskID{0xff})
+	fmt.Println(len(task.VerifyKeys), unknown, len(store.JobsForTask(taskID)))
+	// Output:
+	// 1 false 0
+}

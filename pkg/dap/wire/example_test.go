@@ -106,3 +106,79 @@ func ExampleHpkeConfigList() {
 	// Output:
 	// configs=1 id=1
 }
+
+// ExampleReport shows the payload a Client uploads: public metadata, the public
+// share, and one HPKE-sealed input share per Aggregator (DAP-18 section 4.4.2).
+// Only the matching Aggregator can open its own share, which is what keeps an
+// individual measurement private.
+func ExampleReport() {
+	rep := wire.Report{
+		Metadata: wire.ReportMetadata{
+			ReportID: wire.ReportID{0x01, 0x02},
+			Time:     1717428800,
+		},
+		PublicShare:               []byte{},
+		LeaderEncryptedInputShare: wire.HpkeCiphertext{ConfigID: 1, Enc: []byte{0xaa}, Payload: []byte{0xbb}},
+		HelperEncryptedInputShare: wire.HpkeCiphertext{ConfigID: 2, Enc: []byte{0xcc}, Payload: []byte{0xdd}},
+	}
+	enc, err := rep.MarshalBinary()
+	if err != nil {
+		fmt.Println("marshal error:", err)
+		return
+	}
+	var got wire.Report
+	if err := got.UnmarshalBinary(enc); err != nil {
+		fmt.Println("unmarshal error:", err)
+		return
+	}
+	fmt.Println(got.Metadata.Time, got.LeaderEncryptedInputShare.ConfigID, got.HelperEncryptedInputShare.ConfigID)
+	// Output:
+	// 1717428800 1 2
+}
+
+// ExamplePingPongMessage frames a VDAF preparation message (vdaf-18 section
+// 5.7.1). Field presence depends on Type. A Prio3Count finish carries an empty
+// verifier message, so it encodes to five bytes: the type byte plus a zero
+// uint32 length.
+func ExamplePingPongMessage() {
+	finish := wire.PingPongMessage{Type: wire.PingPongFinish}
+	enc, err := finish.MarshalBinary()
+	if err != nil {
+		fmt.Println("marshal error:", err)
+		return
+	}
+	fmt.Printf("% x (%d bytes)\n", enc, len(enc))
+	// Output:
+	// 02 00 00 00 00 (5 bytes)
+}
+
+// ExampleStrictlyIncreasingExtensions checks the ordering rule DAP-18 imposes on
+// report extensions: types must be strictly increasing, which both forbids
+// duplicates and fixes a canonical order.
+func ExampleStrictlyIncreasingExtensions() {
+	sorted := []wire.Extension{{Type: 1}, {Type: 4}, {Type: 9}}
+	duplicated := []wire.Extension{{Type: 1}, {Type: 1}}
+	unsorted := []wire.Extension{{Type: 9}, {Type: 4}}
+
+	fmt.Println(
+		wire.StrictlyIncreasingExtensions(sorted),
+		wire.StrictlyIncreasingExtensions(duplicated),
+		wire.StrictlyIncreasingExtensions(unsorted),
+	)
+	// Output:
+	// true false false
+}
+
+// ExampleLeaderSelectedBatchIDExtension builds the aggregation-job extension the
+// leader-selected batch mode uses to carry a batch ID. Draft-18 replaced the
+// partial batch selector with extensions like this one.
+func ExampleLeaderSelectedBatchIDExtension() {
+	var batchID wire.BatchID
+	batchID[0] = 0xAB
+
+	ext := wire.LeaderSelectedBatchIDExtension(batchID)
+	got, ok := ext.BatchID()
+	fmt.Println(ok, got == batchID, len(ext.Data))
+	// Output:
+	// true true 32
+}
