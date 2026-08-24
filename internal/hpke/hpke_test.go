@@ -3,6 +3,7 @@ package hpke
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"testing"
 )
 
@@ -115,15 +116,15 @@ func TestOpen_WrongRecipientKeyRejected(t *testing.T) {
 func TestSeal_InvalidSuiteRejected(t *testing.T) {
 	bad := Suite{KEM: 0xFFFF, KDF: KDFHKDFSHA256, AEAD: AEADAES128GCM}
 	_, _, err := Seal(rand.Reader, bad, []byte("pub"), nil, nil, []byte("pt"))
-	if err != ErrInvalidSuite {
+	if !errors.Is(err, ErrInvalidSuite) {
 		t.Fatalf("want ErrInvalidSuite, got %v", err)
 	}
 	_, _, err = GenerateKeyPair(bad)
-	if err != ErrInvalidSuite {
+	if !errors.Is(err, ErrInvalidSuite) {
 		t.Fatalf("GenerateKeyPair want ErrInvalidSuite, got %v", err)
 	}
 	_, err = Open(bad, []byte("priv"), nil, nil, nil, nil)
-	if err != ErrInvalidSuite {
+	if !errors.Is(err, ErrInvalidSuite) {
 		t.Fatalf("Open want ErrInvalidSuite, got %v", err)
 	}
 }

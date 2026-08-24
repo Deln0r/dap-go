@@ -1,6 +1,7 @@
 package flp
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Deln0r/dap-go/pkg/vdaf/field"
@@ -93,14 +94,14 @@ func TestCount_RootOfUnityRejected(t *testing.T) {
 	// wirePolyLen for Count is 2; a 2nd root of unity is p-1, and 1 itself.
 	root2, _ := field.NthRoot(2)
 	for _, t0 := range []field.Elt{field.New(1), root2} {
-		if _, err := f.Query(meas, proof, []field.Elt{t0}, nil, 1); err != ErrTestPointRootOfUnity {
+		if _, err := f.Query(meas, proof, []field.Elt{t0}, nil, 1); !errors.Is(err, ErrTestPointRootOfUnity) {
 			t.Fatalf("query at root of unity %d: err = %v, want ErrTestPointRootOfUnity", t0, err)
 		}
 	}
 }
 
 func TestCount_EncodeGuard(t *testing.T) {
-	if _, err := (Count{}).Encode(2); err != ErrInvalidMeasurement {
+	if _, err := (Count{}).Encode(2); !errors.Is(err, ErrInvalidMeasurement) {
 		t.Fatalf("Encode(2) err = %v, want ErrInvalidMeasurement", err)
 	}
 	m, err := (Count{}).Encode(1)

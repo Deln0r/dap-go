@@ -1,8 +1,20 @@
 version: "2"
+# gosec is deliberately NOT enabled. It reports 16 findings here, and 12 are
+# noise for this codebase: 9 G115 integer-conversion warnings in the crypto code
+# where the length is already guarded a few lines above (xof.New rejects
+# len(dst) > 65535 and len(seed) > 255 before the conversions) or where an
+# invalid argument is a documented programming error that panics, 2 G404 hits on
+# math/rand in tests that need a fixed seed for determinism, and 1 G304 on a
+# test loading its own fixture by name. The 4 genuine findings were fixed
+# instead: server timeouts in cmd/dap-helper (G114), quoting the untrusted
+# request line before logging it (G706), and tighter file permissions in the
+# corpus generator (G301, G306).
 linters:
   default: none
   enable:
     - errcheck
+    - errorlint
+    - gocritic
     - govet
     - ineffassign
     - misspell

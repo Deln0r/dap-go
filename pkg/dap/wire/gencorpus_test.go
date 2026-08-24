@@ -19,7 +19,7 @@ func TestGenCorpus(t *testing.T) {
 
 	write := func(target, name string, prefix []string, data []byte) {
 		dir := filepath.Join("testdata", "fuzz", target)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			t.Fatal(err)
 		}
 		body := "go test fuzz v1\n"
@@ -27,7 +27,7 @@ func TestGenCorpus(t *testing.T) {
 			body += p + "\n"
 		}
 		body += fmt.Sprintf("[]byte(%s)\n", strconv.Quote(string(data)))
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Deln0r/dap-go/internal/hpke"
 	"github.com/Deln0r/dap-go/pkg/dap/helper"
@@ -113,8 +114,19 @@ func main() {
 	mux.HandleFunc("/hpke_config", s.handleHpkeConfig)
 	mux.Handle("/", s.agg) // DAP aggregation endpoints under /tasks/...
 
+	// Explicit timeouts: a bare ListenAndServe has none, so a slow or stalled
+	// peer can hold a connection open indefinitely. Generous enough for an
+	// interop run, bounded enough not to leak connections.
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           logRequests(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("dap-helper listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, logRequests(mux)); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -123,7 +135,7 @@ func main() {
 // the Helper (e.g. "PUT /tasks/.../aggregation_jobs/...").
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s", r.Method, r.URL.RequestURI())
+		log.Printf("%s %q", r.Method, r.URL.RequestURI())
 		next.ServeHTTP(w, r)
 	})
 }

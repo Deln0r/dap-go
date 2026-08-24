@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"os"
 	"testing"
@@ -153,10 +154,10 @@ func TestDomainSeparationTag(t *testing.T) {
 }
 
 func TestNew_Preconditions(t *testing.T) {
-	if _, err := New(make([]byte, 256), nil, nil); err != ErrSeedSize {
+	if _, err := New(make([]byte, 256), nil, nil); !errors.Is(err, ErrSeedSize) {
 		t.Fatalf("want ErrSeedSize, got %v", err)
 	}
-	if _, err := New(nil, make([]byte, 65536), nil); err != ErrDSTSize {
+	if _, err := New(nil, make([]byte, 65536), nil); !errors.Is(err, ErrDSTSize) {
 		t.Fatalf("want ErrDSTSize, got %v", err)
 	}
 }
