@@ -8,22 +8,28 @@ validates.
 
 This document is the reproduction recipe and the wire-format notes behind it.
 
-## Pin Janus to the verified commit
+## Pin Janus to the recorded commit
 
 **Build the Janus interop images from commit `c1531764` (18 Jun 2026).** The
-smoke is verified green against that commit and is not expected to pass against
-current Janus `main`.
+smoke is verified green against that commit. It is a historical pin: it
+reproduces the run exactly as recorded, not the way Janus behaves today.
 
-Janus has been migrating its wire format toward the published
-draft-ietf-ppm-dap-18 since late June 2026 (verification key id, then binding
-TaskConfiguration into the HPKE AAD), landing the changes one merge at a time.
-Its `DAP_VERSION_IDENTIFIER` stayed `"dap-18"` throughout, so the version string
-alone does not tell you which bytes a given build speaks. dap-go's Janus variant
-encodes the shapes as of `c1531764`; a newer Janus build will disagree with it,
-typically failing at HPKE open or at request decode.
+At that commit Janus advertised `DAP_VERSION_IDENTIFIER = "dap-18"` while
+implementing a wire format that differed from the published
+draft-ietf-ppm-dap-18. Over the following months it migrated to the published
+draft one merge at a time, keeping the same identifier the whole way, and as of
+late August 2026 it has converged: `AggregationJobInitializeReq` now carries
+`verification_key_id` and aggregation-job extensions in place of the partial
+batch selector, `InputShareAad` is the four-field form including the task
+configuration, and job creation is a POST that returns a `Location`.
 
-Once Janus finishes converging on the published draft, the right target is
-dap-go's `VariantDraft18` path against Janus `main`, and this pin goes away.
+So there are two ways to run this:
+
+- Against `c1531764` with dap-go's `VariantJanus`, which is what the steps below
+  do and what the recorded result describes.
+- Against current Janus with dap-go's `VariantDraft18`, which is what the shapes
+  now line up with. **This has not been re-run yet**, so treat it as expected
+  rather than verified until this document says otherwise.
 
 ## Prerequisites
 
