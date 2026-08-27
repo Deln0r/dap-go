@@ -60,6 +60,7 @@ pkg/vdaf         From-scratch draft-18 Prio3: turboshake, field, xof, flp, prio3
 internal/hpke    HPKE wrappers over cloudflare/circl/hpke
 cmd/dap-helper   Helper binary used by the Janus interop smoke
 scripts/janus_smoke.sh  Janus cross-implementation smoke (Prio3Count)
+docs/architecture.md  Contributor tour: package map, how a report flows, what is absent
 docs/interop.md  Reproduction recipe + wire-format notes for the Janus smoke
 testdata/fixtures  CFRG VDAF test vectors (vdaf18)
 ```
@@ -133,6 +134,8 @@ unverified.
 - [draft-dcook-ppm-dap-interop-test-design-07](https://datatracker.ietf.org/doc/draft-dcook-ppm-dap-interop-test-design/)
 
 ## Contributing
+
+[docs/architecture.md](docs/architecture.md) is the tour for someone about to change the code: the package map, how one report flows through it, why the wire codec has two modes, and what is deliberately not built yet.
 
 Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Code style and authorship conventions are in [(non-)AGENTS.md](./(non-)AGENTS.md).
 
