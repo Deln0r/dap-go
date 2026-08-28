@@ -135,9 +135,22 @@ func main() {
 // the Helper (e.g. "PUT /tasks/.../aggregation_jobs/...").
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %q", r.Method, r.URL.RequestURI())
-		next.ServeHTTP(w, r)
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("%s %q -> %d", r.Method, r.URL.RequestURI(), rec.status)
 	})
+}
+
+// statusRecorder remembers the response code so the request log shows how the
+// Helper answered, which is what an interop failure needs.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
 }
 
 func (s *server) handleReady(w http.ResponseWriter, _ *http.Request) {
@@ -215,7 +228,10 @@ func (s *server) handleAddTask(w http.ResponseWriter, r *http.Request) {
 	task := &helper.Task{
 		TaskID: taskID,
 		TaskConfig: wire.TaskConfiguration{
-			TaskInfo:       []byte("dap-go interop smoke"),
+			// The interop test API has no task_info field, so every Janus interop
+			// binary binds this fixed placeholder into its TaskConfiguration. The
+			// value must match byte for byte or the input-share AAD will not.
+			TaskInfo:       []byte("task-info"),
 			LeaderEndpoint: []byte(req.Leader),
 			HelperEndpoint: []byte(req.Helper),
 			TimePrecision:  req.TimePrecision,

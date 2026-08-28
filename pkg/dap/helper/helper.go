@@ -190,25 +190,44 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 		}
 	}
 
-	aad := wire.InputShareAad{
-		Variant:           variant,
-		TaskID:            task.TaskID,
-		TaskConfiguration: task.TaskConfig, // omitted on the wire in VariantJanus
-		ReportMetadata:    vi.ReportShare.ReportMetadata,
-		PublicShare:       vi.ReportShare.PublicShare,
-	}
-	aadBytes, err := aad.MarshalBinary()
-	if err != nil {
-		return reject(wire.ReportErrorInvalidMessage)
-	}
-
 	ct := vi.ReportShare.EncryptedInputShare
 	if ct.ConfigID != task.HPKEConfigID {
 		return reject(wire.ReportErrorHpkeUnknownConfigID)
 	}
 
-	plaintext, err := hpke.Open(task.HPKESuite, task.HPKEPrivateKey, helperInputShareInfo(), ct.Enc, aadBytes, ct.Payload)
-	if err != nil {
+	// The AAD shape cannot be inferred from the request that carried the report.
+	// Janus reached the published draft-18 messages (a four-field AAD including
+	// the task configuration) while still creating aggregation jobs with the
+	// older PUT-to-resource model, so the HTTP method no longer implies the AAD.
+	// Try the variant the request suggested first, then the other one, and keep
+	// whichever the sender actually sealed under.
+	candidates := []wire.Variant{variant, wire.VariantDraft18}
+	if variant == wire.VariantDraft18 {
+		candidates[1] = wire.VariantJanus
+	}
+
+	var plaintext []byte
+	var err error
+	opened := false
+	for _, v := range candidates {
+		aad := wire.InputShareAad{
+			Variant:           v,
+			TaskID:            task.TaskID,
+			TaskConfiguration: task.TaskConfig, // omitted on the wire in VariantJanus
+			ReportMetadata:    vi.ReportShare.ReportMetadata,
+			PublicShare:       vi.ReportShare.PublicShare,
+		}
+		aadBytes, merr := aad.MarshalBinary()
+		if merr != nil {
+			return reject(wire.ReportErrorInvalidMessage)
+		}
+		plaintext, err = hpke.Open(task.HPKESuite, task.HPKEPrivateKey, helperInputShareInfo(), ct.Enc, aadBytes, ct.Payload)
+		if err == nil {
+			opened = true
+			break
+		}
+	}
+	if !opened {
 		return reject(wire.ReportErrorHpkeDecryptError)
 	}
 

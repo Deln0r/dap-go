@@ -19,10 +19,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NET=dapsmoke
-HELPER_PORT=8080
-LEADER_PORT=9001
-CLIENT_PORT=9002
-COLLECTOR_PORT=9003
+HELPER_PORT="${HELPER_PORT:-8080}"
+LEADER_PORT="${LEADER_PORT:-9001}"
+CLIENT_PORT="${CLIENT_PORT:-9002}"
+COLLECTOR_PORT="${COLLECTOR_PORT:-9003}"
 TAG="${JANUS_TAG:-latest}"
 
 # Prio3Count measurements; the aggregate is their sum.
@@ -40,8 +40,11 @@ cleanup() {
   rc=$?
   set +e
   if [ "$rc" != 0 ]; then
-    echo "== FAILED (rc=$rc); leader aggregation/error logs ==" >&2
-    docker logs leader 2>&1 | grep -iE "aggregat|abandon|error|warn|helper|reject|fail" | tail -40 | sed 's/^/  /' >&2
+    echo "== FAILED (rc=$rc); container logs ==" >&2
+    for c in leader collector; do
+      echo "-- $c --" >&2
+      docker logs "$c" 2>&1 | grep -iE "aggregat|abandon|error|warn|helper|reject|fail|collect|decrypt|batch" | tail -25 | sed 's/^/  /' >&2
+    done
   fi
   [ -n "$HELPER_PID" ] && kill "$HELPER_PID" 2>/dev/null
   docker rm -f leader client collector >/dev/null 2>&1
@@ -101,26 +104,37 @@ post "http://localhost:$HELPER_PORT/internal/test/endpoint_for_task" \
   "$(jq -n --arg t "$TASK_ID" '{task_id:$t,role:"helper",hostname:"host.docker.internal"}')" | jq -e '.status=="success"' >/dev/null
 
 echo "== add_task: collector =="
-COLLECTOR_HPKE=$(post "http://localhost:$COLLECTOR_PORT/internal/test/add_task" \
-  "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --argjson v "$VDAF" --arg ca "$COLLECTOR_AUTH" --argjson bm "$BATCH_MODE" --argjson tp "$TIME_PRECISION" \
-     '{task_id:$t,leader:$l,vdaf:$v,collector_authentication_token:$ca,batch_mode:$bm,time_precision:$tp}')" | jq -r '.collector_hpke_config')
+# The collector needs the helper endpoint and min_batch_size too: draft-18 binds
+# the task configuration into AggregateShareAad, so all three parties must agree
+# on those bytes exactly. Use cpost so a rejection is reported instead of
+# silently yielding an empty HPKE config.
+COLLECTOR_HPKE=$(cpost "http://localhost:$COLLECTOR_PORT/internal/test/add_task" \
+  "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" --arg ca "$COLLECTOR_AUTH" \
+        --argjson bm "$BATCH_MODE" --argjson mb "$MIN_BATCH" --argjson tp "$TIME_PRECISION" \
+     '{task_id:$t,leader:$l,helper:$h,vdaf:$v,collector_authentication_token:$ca,batch_mode:$bm,min_batch_size:$mb,time_precision:$tp}')" | jq -r '.collector_hpke_config')
+[ -n "$COLLECTOR_HPKE" ] && [ "$COLLECTOR_HPKE" != "null" ] || { echo "collector returned no HPKE config" >&2; exit 1; }
+
+# task_start / task_end are Option<u64> in the Janus interop API but carry no
+# serde default, so the keys must be present even when null, and Janus requires
+# them to be both set or both unset. An unbounded task keeps the smoke simple.
 
 addtask_body() { # role
   jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" \
         --arg la "$LEADER_AUTH" --arg ca "$COLLECTOR_AUTH" --arg r "$1" --arg vk "$VERIFY_KEY" \
         --argjson bm "$BATCH_MODE" --argjson mb "$MIN_BATCH" --argjson tp "$TIME_PRECISION" --arg ch "$COLLECTOR_HPKE" \
-    '{task_id:$t,leader:$l,helper:$h,vdaf:$v,leader_authentication_token:$la,collector_authentication_token:$ca,role:$r,vdaf_verify_key:$vk,batch_mode:$bm,min_batch_size:$mb,time_precision:$tp,collector_hpke_config:$ch}'
+    '{task_id:$t,leader:$l,helper:$h,vdaf:$v,leader_authentication_token:$la,collector_authentication_token:$ca,role:$r,vdaf_verify_key:$vk,batch_mode:$bm,min_batch_size:$mb,time_precision:$tp,collector_hpke_config:$ch,task_start:null,task_end:null}'
 }
 echo "== add_task: leader =="
-post "http://localhost:$LEADER_PORT/internal/test/add_task" "$(addtask_body leader)" | jq -e '.status=="success"' >/dev/null
+cpost "http://localhost:$LEADER_PORT/internal/test/add_task" "$(addtask_body leader)" >/dev/null
 echo "== add_task: helper (dap-go) =="
-post "http://localhost:$HELPER_PORT/internal/test/add_task" "$(addtask_body helper)" | jq -e '.status=="success"' >/dev/null
+cpost "http://localhost:$HELPER_PORT/internal/test/add_task" "$(addtask_body helper)" >/dev/null
 
 echo "== upload ${#MEASUREMENTS[@]} measurements =="
 for m in "${MEASUREMENTS[@]}"; do
   cpost "http://localhost:$CLIENT_PORT/internal/test/upload" \
-    "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" --arg m "$m" --argjson tp "$TIME_PRECISION" \
-       '{task_id:$t,leader:$l,helper:$h,vdaf:$v,measurement:$m,time_precision:$tp}')" >/dev/null
+    "$(jq -n --arg t "$TASK_ID" --arg l "$LEADER_INT" --arg h "$HELPER_INT" --argjson v "$VDAF" --arg m "$m" \
+          --argjson tp "$TIME_PRECISION" --argjson bm "$BATCH_MODE" --argjson mb "$MIN_BATCH" \
+       '{task_id:$t,leader:$l,helper:$h,vdaf:$v,measurement:$m,time_precision:$tp,batch_mode:$bm,min_batch_size:$mb}')" >/dev/null
 done
 
 echo "== collection_start =="
