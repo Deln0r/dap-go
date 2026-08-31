@@ -7,11 +7,11 @@ A Go-language implementation of the IETF [Distributed Aggregation Protocol](http
 [![Go](https://img.shields.io/badge/go-1.25%2B-00ADD8.svg)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)]()
-[![Janus interop](https://img.shields.io/badge/Janus%20dap--18-Prio3Count%20smoke%20green-success.svg)]()
+[![Janus interop](https://img.shields.io/badge/Janus%20interop-Prio3Count%20aggregation-success.svg)]()
 [![Spec](https://img.shields.io/badge/spec-draft--ietf--ppm--dap--18-7c3aed.svg)](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/)
 [![VDAF vectors](https://img.shields.io/badge/CFRG%20Prio3Count-byte--verified-success.svg)](https://github.com/cfrg/draft-irtf-cfrg-vdaf)
 
-> Experimental. The from-scratch Prio3 VDAF (draft-18), the DAP-18 wire codec, the HPKE layer, and a Helper-role aggregator are implemented and verified byte-for-byte against the official CFRG Prio3Count test vectors. The Helper interoperates with the Janus reference implementation: a Prio3Count cross-implementation smoke (Janus plays Client, Leader, and Collector; dap-go plays Helper) runs green end to end, with the aggregate converging to the expected value. This is a single-VDAF, single-job, single-batch smoke, not a full conformance suite: the Leader role, the general collection path, and the other Prio3 instances are not done yet. Treat the [Status](#status) table as the source of truth.
+> Experimental. The from-scratch Prio3 VDAF (draft-18), the DAP-18 wire codec, the HPKE layer, and a Helper-role aggregator are implemented and verified byte-for-byte against the official CFRG Prio3Count test vectors. The Helper interoperates with the Janus reference implementation: a Prio3Count cross-implementation smoke (Janus plays Client, Leader, and Collector; dap-go plays Helper) ran green end to end against Janus `c1531764`, with the aggregate converging to the expected value. Against current Janus the aggregation half still works, reports decrypt, verify, and are accepted, and the run stops at the aggregate share, which draft-18 restructured around the collection path that this project has not built. This is a single-VDAF, single-job, single-batch smoke, not a full conformance suite: the Leader role, the general collection path, and the other Prio3 instances are not done yet. Treat the [Status](#status) table as the source of truth.
 
 ## What is DAP
 
@@ -32,7 +32,7 @@ Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf
 | HPKE layer (`internal/hpke`) | Verified | RFC 9180 Seal/Open over cloudflare/circl; tamper / wrong-key / wrong-AAD negatives |
 | Helper aggregation-init (`pkg/dap/helper`) | Verified | Prio3Count init with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. verification_key_id keyring, aggregation-job + report-extension validation, in-memory store, content-derived idempotency. Handles both the draft-18 POST-create and the Janus PUT resource models |
 | Helper aggregate-share (`pkg/dap/helper`) | Smoke only | Single-batch aggregate-share sealed to the Collector, built for the Janus cross-run. The general collection path (multi-batch, batch selectors, query modes) is not done |
-| Janus cross-run, Prio3Count (`scripts/janus_smoke.sh`) | Green | Janus plays Client + Leader + Collector, dap-go plays Helper; one aggregation job over a single batch, aggregate converges to the expected value |
+| Janus cross-run, Prio3Count (`scripts/janus_smoke.sh`) | Green vs `c1531764`; aggregation-only vs current | Janus plays Client + Leader + Collector, dap-go plays Helper. Complete against the pinned June build (aggregate matches). Against current Janus all reports decrypt, verify, and are accepted; the aggregate-share step needs collection-path messages that are not implemented. See [docs/interop.md](docs/interop.md) |
 | Helper continuation (POST) | Not started | Returns 501. Single-round VDAFs never reach continuation (DAP-18 §4.5.4); needed for 2-round VDAFs like Poplar1 |
 | Prio3Sum / Histogram | Not started | Need the joint-randomness public-share path |
 | Leader role | Not started | v1.0 |
