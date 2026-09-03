@@ -17,7 +17,9 @@ A Go-language implementation of the IETF [Distributed Aggregation Protocol](http
 
 DAP carries encrypted measurement reports from clients to two non-colluding Aggregator servers (Leader and Helper) which run a verifiable multi-party computation to produce aggregate results without learning any individual contribution. The underlying primitives are Prio3 ([draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/)) for distributed aggregation and HPKE ([RFC 9180](https://datatracker.ietf.org/doc/rfc9180/)) for report encryption.
 
-Production deployments include Apple Private Cloud Compute, Mozilla Firefox telemetry, Cloudflare measurement infrastructure, and ISRG Divviup. Existing reference implementations are [Janus](https://github.com/divviup/janus) and [libprio-rs](https://github.com/divviup/libprio-rs) (Rust), [Daphne](https://github.com/cloudflare/daphne) (Rust on Cloudflare Workers), and [divviup-ts](https://github.com/divviup/divviup-ts) (TypeScript client).
+Where it runs today, stated only as far as it can be checked: Mozilla ships a DAP **client** in Firefox ([toolkit/components/dap](https://searchfox.org/firefox-main/source/toolkit/components/dap), JavaScript and C++ over a Rust FFI), and ISRG operates [Divvi Up](https://divviup.org/) as a hosted deployment. On the **aggregator** side the field has narrowed rather than grown: Cloudflare [archived Daphne on 3 June 2026](https://github.com/cloudflare/daphne), leaving [Janus](https://github.com/divviup/janus) (Rust, ISRG) as the only actively maintained aggregator implementation. The other public codebases are [libprio-rs](https://github.com/divviup/libprio-rs) (Rust, the VDAF library rather than a deployable aggregator) and [divviup-ts](https://github.com/divviup/divviup-ts) (TypeScript client).
+
+Draft status, precisely: DAP is an Internet-Draft of the IETF PPM working group, currently [draft-19](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) in "WG Consensus: Waiting for Write-Up" and not yet an RFC. The Prio3 VDAF it builds on is an IRTF CFRG draft, currently -22, which states that it "is not endorsed by the IETF and has no formal standing in the IETF standards process". Neither is a ratified standard, and this project does not describe them as one.
 
 dap-go targets the same wire format and interop test design so that a Go-based Aggregator or Client can eventually interoperate with those implementations.
 
@@ -32,6 +34,7 @@ Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf
 | HPKE layer (`internal/hpke`) | Verified | RFC 9180 Seal/Open over cloudflare/circl; tamper / wrong-key / wrong-AAD negatives |
 | Helper aggregation-init (`pkg/dap/helper`) | Verified | Prio3Count init with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. verification_key_id keyring, aggregation-job + report-extension validation, in-memory store, content-derived idempotency. Handles both the POST-create model of the published drafts and the Janus PUT resource model. A task selects its DAP version, and draft-19's per-report `unknown_verification_key_id` rejection is implemented |
 | Helper aggregate-share (`pkg/dap/helper`) | Smoke only | Single-batch aggregate-share sealed to the Collector, built for the Janus cross-run. The general collection path (multi-batch, batch selectors, query modes) is not done |
+| Matrix homeserver integration (`integration/matrix`) | Verified against a live homeserver | Turns a Matrix homeserver into a DAP Client: probes the two unauthenticated endpoints, shards the liveness measurement, and seals one input share to each Aggregator. CI starts an unmodified [Dendrite](https://github.com/element-hq/dendrite) on every push and drives a real measurement through to a correct aggregate ([details](#matrix-homeservers-that-can-count-themselves)) |
 | Janus cross-run, Prio3Count (`scripts/janus_smoke.sh`) | Green vs `c1531764`; aggregation-only vs current | Janus plays Client + Leader + Collector, dap-go plays Helper. Complete against the pinned June build (aggregate matches). Against current Janus all reports decrypt, verify, and are accepted; the aggregate-share step needs collection-path messages that are not implemented. See [docs/interop.md](docs/interop.md) |
 | Helper continuation (POST) | Not started | Returns 501. Single-round VDAFs never reach continuation (DAP-18 §4.5.4); needed for 2-round VDAFs like Poplar1 |
 | Prio3Sum / Histogram | Not started | Need the joint-randomness public-share path |
@@ -91,6 +94,44 @@ scripts/janus_smoke.sh
 The script starts the Janus Client, Leader, and Collector containers, runs the dap-go Helper on the host, aggregates the Prio3Count measurements `[1, 1, 0, 1]`, and checks that the Collector unshards the expected aggregate, `3`. Build the images with the default release profile: a `dev` cargo profile writes to `target/debug` and breaks the bake.
 
 Pin Janus to that commit: the smoke is verified against it, and Janus `main` has since been migrating toward the published draft-18 under the same `"dap-18"` identifier, so a newer build will not match the variant the smoke registers. [docs/interop.md](docs/interop.md) has the full recipe and the wire-format notes.
+
+## Matrix homeservers that can count themselves
+
+Matrix cannot count itself without asking servers to identify themselves.
+Synapse's optional usage report is documented plainly on this point: "while
+per-user statistics are not reported, homeserver server names are". An operator
+who does not want to name their server to a third party sets `report_stats` to
+false and vanishes from the count, so the network's own size is unknown to the
+people running it and the privacy-conscious are the ones missing from the data.
+
+That is the shape of problem DAP exists for. `integration/matrix` makes a
+homeserver a DAP Client: it measures itself over its own unauthenticated
+endpoints, splits the measurement into two shares, and encrypts one to each of
+two non-colluding Aggregators. Neither Aggregator can reconstruct a single
+server's contribution; only the sum across all reporting servers is revealed.
+The server name is not merely left out of the payload, it is never read.
+
+```go
+m, _ := (&matrix.Probe{BaseURL: "https://matrix.example.org"}).Measure(ctx)
+report, _ := task.Report(rand.Reader, m.Count(), time.Now())
+// upload report to the Leader
+```
+
+Being Go is what makes this embeddable: [Dendrite](https://github.com/element-hq/dendrite),
+the Go Matrix homeserver from Element (New Vector Ltd, United Kingdom), can take
+this as a library with no cgo, no second runtime, and no per-platform artifacts.
+
+The claim is checked by execution, not by assertion. On every push CI starts an
+unmodified Dendrite image, measures it, and drives the report through the dap-go
+Helper until the two aggregators' output shares sum to the true count. The test
+sets `DAP_REQUIRE_LIVE=1`, which makes an unreachable homeserver a failure rather
+than a skip, so the job cannot go green without having actually run. Locally:
+
+```sh
+scripts/dendrite_up.sh
+DAP_REQUIRE_LIVE=1 go test ./integration/matrix/ -run TestLive -v
+scripts/dendrite_up.sh down
+```
 
 ## Dependencies
 

@@ -31,6 +31,29 @@ jobs:
           name: coverage
           path: coverage.txt
 
+  matrix-interop:
+    name: matrix interop (live Dendrite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+      - name: start an unmodified Dendrite homeserver
+        run: scripts/dendrite_up.sh
+      - name: measure it and drive the report through to an aggregate
+        # DAP_REQUIRE_LIVE=1 turns an unreachable homeserver into a failure
+        # instead of a skip, so this job cannot go green without having run.
+        env:
+          DAP_REQUIRE_LIVE: "1"
+        run: go test ./integration/matrix/ -run TestLive -count=1 -v
+      - name: homeserver logs on failure
+        if: failure()
+        run: docker logs dap-go-dendrite 2>&1 | tail -50
+      - name: stop the homeserver
+        if: always()
+        run: scripts/dendrite_up.sh down
+
   lint:
     name: lint
     runs-on: ubuntu-latest
