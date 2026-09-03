@@ -72,7 +72,8 @@ Its tests split along a line worth copying elsewhere. The stand-in-homeserver
 tests can only check parsing, because a stand-in agrees with whatever the code
 expects; they say so in a comment at the top of the file. The endpoint contract
 is checked by `TestLive_DendriteToAggregate` against an unmodified Dendrite,
-which CI starts on every push. `DAP_REQUIRE_LIVE=1` turns an unreachable
+which CI starts on pushes to main and on pull requests, pinned by image digest
+rather than by a moving tag. `DAP_REQUIRE_LIVE=1` turns an unreachable
 homeserver into a failure rather than a skip, so that job cannot pass without
 having run.
 

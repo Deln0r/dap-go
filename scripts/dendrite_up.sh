@@ -12,7 +12,10 @@
 # is that dap-go works against the real thing.
 set -euo pipefail
 
-IMAGE="${DENDRITE_IMAGE:-ghcr.io/element-hq/dendrite-monolith:latest}"
+# Pinned by digest, not by :latest. A moving tag makes "reproducible" false: the
+# run that passes today and the run that fails next month would not be testing
+# the same homeserver. Bump deliberately.
+IMAGE="${DENDRITE_IMAGE:-matrixdotorg/dendrite-monolith@sha256:7dafe6edfc8cfab758a68a4cf20414df1ade4a36b45b1852554d81fb70b1272c}"
 NAME="${DENDRITE_CONTAINER:-dap-go-dendrite}"
 PORT="${DENDRITE_PORT:-8009}"
 STATE_DIR="${DENDRITE_STATE_DIR:-${TMPDIR:-/tmp}/dap-go-dendrite}"

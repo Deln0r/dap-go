@@ -34,7 +34,7 @@ Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf
 | HPKE layer (`internal/hpke`) | Verified | RFC 9180 Seal/Open over cloudflare/circl; tamper / wrong-key / wrong-AAD negatives |
 | Helper aggregation-init (`pkg/dap/helper`) | Verified | Prio3Count init with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. verification_key_id keyring, aggregation-job + report-extension validation, in-memory store, content-derived idempotency. Handles both the POST-create model of the published drafts and the Janus PUT resource model. A task selects its DAP version, and draft-19's per-report `unknown_verification_key_id` rejection is implemented |
 | Helper aggregate-share (`pkg/dap/helper`) | Smoke only | Single-batch aggregate-share sealed to the Collector, built for the Janus cross-run. The general collection path (multi-batch, batch selectors, query modes) is not done |
-| Matrix homeserver integration (`integration/matrix`) | Verified against a live homeserver | Turns a Matrix homeserver into a DAP Client: probes the two unauthenticated endpoints, shards the liveness measurement, and seals one input share to each Aggregator. CI starts an unmodified [Dendrite](https://github.com/element-hq/dendrite) on every push and drives a real measurement through to a correct aggregate ([details](#matrix-homeservers-that-can-count-themselves)) |
+| Matrix homeserver integration (`integration/matrix`) | Verified against a live homeserver | Turns a Matrix homeserver into a DAP Client: probes the two unauthenticated endpoints, shards the liveness measurement, and seals one input share to each Aggregator. CI starts a digest-pinned, unmodified [Dendrite](https://github.com/element-hq/dendrite) on pushes to main and on pull requests, and drives a real measurement through to a correct aggregate ([details](#matrix-homeservers-that-can-count-themselves)) |
 | Janus cross-run, Prio3Count (`scripts/janus_smoke.sh`) | Green vs `c1531764`; aggregation-only vs current | Janus plays Client + Leader + Collector, dap-go plays Helper. Complete against the pinned June build (aggregate matches). Against current Janus all reports decrypt, verify, and are accepted; the aggregate-share step needs collection-path messages that are not implemented. See [docs/interop.md](docs/interop.md) |
 | Helper continuation (POST) | Not started | Returns 501. Single-round VDAFs never reach continuation (DAP-18 §4.5.4); needed for 2-round VDAFs like Poplar1 |
 | Prio3Sum / Histogram | Not started | Need the joint-randomness public-share path |
@@ -121,9 +121,12 @@ Being Go is what makes this embeddable: [Dendrite](https://github.com/element-hq
 the Go Matrix homeserver from Element (New Vector Ltd, United Kingdom), can take
 this as a library with no cgo, no second runtime, and no per-platform artifacts.
 
-The claim is checked by execution, not by assertion. On every push CI starts an
-unmodified Dendrite image, measures it, and drives the report through the dap-go
-Helper until the two aggregators' output shares sum to the true count. The test
+The claim is checked by execution, not by assertion. On pushes to main and on
+pull requests, CI starts an unmodified Dendrite image, pinned by digest so the
+run is reproducible, measures it, and drives the report through the dap-go
+Helper until the two aggregators' output shares sum to the true count. The
+package is a library a Go homeserver can embed; no homeserver embeds it yet, and
+the Leader in the test is a harness rather than an implementation. The test
 sets `DAP_REQUIRE_LIVE=1`, which makes an unreachable homeserver a failure rather
 than a skip, so the job cannot go green without having actually run. Locally:
 

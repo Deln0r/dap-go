@@ -10,7 +10,8 @@
 //
 // The Client end is integration/matrix, which turns a Matrix homeserver into a
 // DAP Client so a federation can count itself without any server naming itself;
-// CI drives it against an unmodified Dendrite homeserver on every push.
+// CI drives it against a pinned, unmodified Dendrite homeserver on pushes to
+// main and on pull requests.
 //
 // A Helper-role aggregator (pkg/dap/helper) interoperates with the Janus
 // reference implementation for Prio3Count. Because Janus ships a wire format of
