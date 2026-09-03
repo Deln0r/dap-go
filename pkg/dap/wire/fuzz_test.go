@@ -90,24 +90,29 @@ func FuzzTaskConfiguration(f *testing.F) {
 	f.Add([]byte{0x00})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var v TaskConfiguration
-		if v.UnmarshalBinary(data) != nil {
-			return
-		}
-		enc1, err := v.MarshalBinary()
-		if err != nil {
-			t.Fatalf("decoded TaskConfiguration failed to re-encode: %v", err)
-		}
-		var v2 TaskConfiguration
-		if err := v2.UnmarshalBinary(enc1); err != nil {
-			t.Fatalf("re-encoded TaskConfiguration failed to decode: %v", err)
-		}
-		enc2, err := v2.MarshalBinary()
-		if err != nil {
-			t.Fatalf("second TaskConfiguration encode failed: %v", err)
-		}
-		if !bytes.Equal(enc1, enc2) {
-			t.Fatalf("TaskConfiguration re-encode not a fixed point:\n enc1=%x\n enc2=%x", enc1, enc2)
+		// Both published drafts, since draft-19 relaxed the task_info lower
+		// bound: whatever a variant accepts, it must re-encode to the same bytes
+		// under that same variant.
+		for _, variant := range []Variant{VariantDraft18, VariantDraft19} {
+			v := TaskConfiguration{Variant: variant}
+			if v.UnmarshalBinary(data) != nil {
+				continue
+			}
+			enc1, err := v.MarshalBinary()
+			if err != nil {
+				t.Fatalf("%s: decoded TaskConfiguration failed to re-encode: %v", variant.VersionString(), err)
+			}
+			v2 := TaskConfiguration{Variant: variant}
+			if err := v2.UnmarshalBinary(enc1); err != nil {
+				t.Fatalf("%s: re-encoded TaskConfiguration failed to decode: %v", variant.VersionString(), err)
+			}
+			enc2, err := v2.MarshalBinary()
+			if err != nil {
+				t.Fatalf("%s: second TaskConfiguration encode failed: %v", variant.VersionString(), err)
+			}
+			if !bytes.Equal(enc1, enc2) {
+				t.Fatalf("%s: TaskConfiguration re-encode not a fixed point:\n enc1=%x\n enc2=%x", variant.VersionString(), enc1, enc2)
+			}
 		}
 	})
 }
@@ -131,10 +136,7 @@ func FuzzAggregationJobInitReq(f *testing.F) {
 	f.Fuzz(func(t *testing.T, variantSel uint8, data []byte) {
 		// The variant is not on the wire: callers pin it before decoding, so the
 		// fuzzer picks one and keeps it consistent across the re-decode.
-		variant := VariantDraft18
-		if variantSel&1 == 1 {
-			variant = VariantJanus
-		}
+		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19}[int(variantSel)%3]
 		v := AggregationJobInitReq{Variant: variant}
 		if v.UnmarshalBinary(data) != nil {
 			return

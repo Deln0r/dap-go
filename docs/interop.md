@@ -24,6 +24,11 @@ at the aggregate-share step. Details below.
 The version identifier was `"dap-18"` on both dates. What changed underneath it
 was the entire message layer.
 
+dap-go has since added draft-19 as a third variant, but the smoke still runs
+draft-18: Janus advertises `dap-18`, and the version tag is baked into every
+domain-separation string, so a draft-19 Helper and a draft-18 Leader cannot open
+each other's input shares at all. Draft-19 interop waits on a draft-19 peer.
+
 ## What Janus looks like now
 
 Janus has converged on the published draft-18 messages: the aggregation-job

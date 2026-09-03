@@ -78,7 +78,7 @@ Job creation is idempotent by construction: the job ID is `sha256(body)[:16]`,
 so a byte-identical retry lands on the same resource and replays the stored
 response, while the same ID with different content is a conflict.
 
-## Why the wire codec has two modes
+## Why the wire codec has three modes
 
 `pkg/dap/wire.Variant` exists because the string `"dap-18"` did not pin a byte
 format. The published draft-ietf-ppm-dap-18 and the format the Janus reference
@@ -86,11 +86,40 @@ implementation shipped under the same identifier differed in five places, so the
 codec learned to speak both, with the caller pinning the variant because nothing
 on the wire announces it.
 
-Janus has since converged on the published draft, so `VariantDraft18` is the
-path that matters and `VariantJanus` is a historical snapshot. The golden tests
-in `wire/golden_test.go` pin both encodings byte for byte and assert the
+Janus has since converged on the published draft's messages, so `VariantDraft18`
+is the path that matters and `VariantJanus` is a historical snapshot. The golden
+tests in `wire/golden_test.go` pin both encodings byte for byte and assert the
 difference stays confined to the documented header and length-prefix positions.
 See [interop.md](interop.md) for the details and the reproduction recipe.
+
+`VariantDraft19` was added for a different reason, and the distinction is worth
+keeping straight when reading the codecs. Janus differs from draft-18 in message
+*structure*; draft-19 does not differ from draft-18 in structure at all. What it
+changes is version-bound *values*:
+
+| | draft-18 | draft-19 |
+|---|---|---|
+| Version tag in every domain-separation string | `dap-18` | `dap-19` |
+| `ReportError` for `invalid_message` | 8 | 7 |
+| `unknown_verification_key_id` | absent | 9 |
+| `task_expired`, `task_not_started`, `outdated_config` | 7, 10, 11 | deleted |
+| `task_info` | `opaque<1..2^8-1>` | `opaque<0..2^8-1>` |
+| Unknown `verification_key_id` | job fails with a problem document | every report is rejected with `unknown_verification_key_id` |
+
+That split is why every structural branch in the codec tests against
+`VariantJanus` rather than for `VariantDraft18`: a new published draft then
+inherits the right message shapes automatically, and only the value tables and
+the version string need touching. The `ReportError` code points are translated
+at the wire boundary in both directions rather than cast, because the same byte
+denotes different errors in the two registries — byte 7 is `task_expired` under
+draft-18 and `invalid_message` under draft-19 — so a version-blind decoder would
+silently report the wrong rejection reason rather than fail.
+
+draft-19 also references draft-irtf-cfrg-vdaf-20, whose `VERSION` constant is
+still 18. The Prio3 crypto is therefore unchanged and the checked-in CFRG
+vectors stay authoritative for both DAP versions, which is what
+`TestDraft19_EndToEnd` asserts by committing the same reference output share
+under the new version.
 
 ## What is deliberately not here
 

@@ -37,67 +37,61 @@ const helperAggregatorID uint8 = 1
 // numAggregators is fixed at two for DAP-18.
 const numAggregators uint8 = 2
 
-// hpkeInputShareInfoPrefix is the version-bound prefix of the HPKE info string
-// for an input share. DAP-18 fixes the full info as
-//
-//	"dap-18 input share" || sender_role || recipient_role
-//
-// a raw concatenation with no length prefixes, byte-identical on the Client
-// SealBase (§4.4.2.1) and the Aggregator OpenBase (§4.5.3.3). The sender of an
-// input share is always the Client (role 0x01); the recipient is this
-// Aggregator (0x02 Leader, 0x03 Helper). helperInputShareInfo assembles the
-// Helper view. The published RFC drops the draft suffix ("dap-18" -> "dap"); a
-// build targeting draft-18 MUST keep "dap-18".
-var hpkeInputShareInfoPrefix = []byte("dap-18 input share")
+// Every domain-separation string in DAP is prefixed with the version
+// identifier, so all three of the constructors below are version-bound and take
+// the variant of the task they belong to. Getting the version wrong does not
+// produce a clean protocol error: the HPKE open fails and the VDAF verification
+// fails, both of which look like key problems. The published RFC will drop the
+// draft suffix ("dap-19" -> "dap"); a build targeting a draft MUST keep it.
 
-// Role code points from the DAP-18 Role enum (collector(0), client(1),
-// leader(2), helper(3)).
+// Role code points from the Role enum (collector(0), client(1), leader(2),
+// helper(3)). Unchanged between draft-18 and draft-19.
 const (
 	roleCollector uint8 = 0
 	roleClient    uint8 = 1
 	roleHelper    uint8 = 3
 )
 
-// hpkeAggregateShareInfoPrefix is the version-bound prefix of the HPKE info
-// string for an aggregate share (§4.6.7): "dap-18 aggregate share" ||
-// sender_role || recipient_role. The Helper seals to the Collector, so the
-// trailing bytes are helper(0x03) then collector(0x00).
-var hpkeAggregateShareInfoPrefix = []byte("dap-18 aggregate share")
-
-func aggregateShareInfo() []byte {
-	info := make([]byte, 0, len(hpkeAggregateShareInfoPrefix)+2)
-	info = append(info, hpkeAggregateShareInfoPrefix...)
-	info = append(info, roleHelper, roleCollector)
-	return info
+// aggregateShareInfo is the HPKE info string for an aggregate share (§4.6.7):
+// "dap-NN aggregate share" || sender_role || recipient_role. The Helper seals
+// to the Collector, so the trailing bytes are helper(0x03) then collector(0x00).
+func aggregateShareInfo(v wire.Variant) []byte {
+	return append([]byte(v.VersionString()+" aggregate share"), roleHelper, roleCollector)
 }
 
-// helperInputShareInfo returns the HPKE info used to seal/open the Helper's
-// input share.
-func helperInputShareInfo() []byte {
-	info := make([]byte, 0, len(hpkeInputShareInfoPrefix)+2)
-	info = append(info, hpkeInputShareInfoPrefix...)
-	info = append(info, roleClient, roleHelper)
-	return info
+// helperInputShareInfo is the HPKE info used to seal and open the Helper's
+// input share. The full info is
+//
+//	"dap-NN input share" || sender_role || recipient_role
+//
+// a raw concatenation with no length prefixes, byte-identical on the Client
+// SealBase (§4.4.2.1) and the Aggregator OpenBase (§4.5.3.3). The sender of an
+// input share is always the Client (role 0x01); the recipient is this
+// Aggregator (0x02 Leader, 0x03 Helper), and this is the Helper view.
+func helperInputShareInfo(v wire.Variant) []byte {
+	return append([]byte(v.VersionString()+" input share"), roleClient, roleHelper)
 }
 
-// dapVDAFVersion is the DAP-18 domain-separation marker prepended to the task
-// ID to form the VDAF application context (§4.4.2.1). The published RFC drops
-// the draft suffix ("dap-18" -> "dap"); a build targeting draft-18 MUST keep
-// "dap-18".
-var dapVDAFVersion = []byte("dap-18")
-
-// DAPVDAFContext returns the VDAF application context ("ctx") that DAP-18 binds
-// into every VDAF call (shard and all ping_pong_* transitions): the literal
-// "dap-18" followed by the 32-byte task ID, raw-concatenated with no length
+// DAPVDAFContextFor returns the VDAF application context ("ctx") that DAP binds
+// into every VDAF call (shard and all ping_pong_* transitions): the version
+// literal followed by the 32-byte task ID, raw-concatenated with no length
 // prefix (§4.4.2.1, §4.5.3). A task registered for cross-implementation interop
 // must build its *prio3.Count with this context. The unit tests instead inject
 // the bare CFRG vector context, to validate intra-implementation VDAF
 // correctness against the published test vectors.
-func DAPVDAFContext(taskID wire.TaskID) []byte {
-	ctx := make([]byte, 0, len(dapVDAFVersion)+len(taskID))
-	ctx = append(ctx, dapVDAFVersion...)
+func DAPVDAFContextFor(v wire.Variant, taskID wire.TaskID) []byte {
+	version := v.VersionString()
+	ctx := make([]byte, 0, len(version)+len(taskID))
+	ctx = append(ctx, version...)
 	ctx = append(ctx, taskID[:]...)
 	return ctx
+}
+
+// DAPVDAFContext is DAPVDAFContextFor pinned to draft-18. It predates the
+// draft-19 support and is kept so existing callers keep compiling; new code
+// should name its variant.
+func DAPVDAFContext(taskID wire.TaskID) []byte {
+	return DAPVDAFContextFor(wire.VariantDraft18, taskID)
 }
 
 // VerifyKey is a VDAF verification key (prio3.VerifyKeySize bytes).
@@ -108,6 +102,11 @@ type VerifyKey = [prio3.VerifyKeySize]byte
 // full DAP task, so the timestamp-validation gates are not enforced yet.
 type Task struct {
 	TaskID wire.TaskID
+	// Variant is the DAP version this task speaks. It selects the
+	// domain-separation strings, the ReportError registry and the task_info
+	// bound, so it must match what the peers were configured with. The zero
+	// value is wire.VariantDraft18.
+	Variant wire.Variant
 	// TaskConfig is the task's wire TaskConfiguration. DAP-18 binds it into the
 	// input-share HPKE AAD (InputShareAad), so the Helper must hold the exact
 	// bytes the Client used when sealing, or every HPKE open fails.
@@ -180,7 +179,7 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 	reportID := vi.ReportShare.ReportMetadata.ReportID
 
 	reject := func(e wire.ReportError) (wire.VerifyResp, *ReportAggregation) {
-		vr := wire.VerifyResp{ReportID: reportID, Type: wire.VerifyRespReject, Error: e}
+		vr := wire.VerifyResp{Variant: variant, ReportID: reportID, Type: wire.VerifyRespReject, Error: e}
 		return vr, &ReportAggregation{
 			ReportID:       reportID,
 			Ord:            ord,
@@ -201,9 +200,14 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 	// older PUT-to-resource model, so the HTTP method no longer implies the AAD.
 	// Try the variant the request suggested first, then the other one, and keep
 	// whichever the sender actually sealed under.
-	candidates := []wire.Variant{variant, wire.VariantDraft18}
-	if variant == wire.VariantDraft18 {
-		candidates[1] = wire.VariantJanus
+	// The published drafts share one AAD shape and Janus has the other, so a
+	// published-draft task falls back to Janus and a Janus task falls back to
+	// draft-18. Note that the fallback is about structure only: the info string
+	// below stays pinned to the task's own version, since a peer speaking a
+	// different version is a misconfiguration rather than a dialect to guess.
+	candidates := []wire.Variant{variant, wire.VariantJanus}
+	if variant == wire.VariantJanus {
+		candidates[1] = wire.VariantDraft18
 	}
 
 	var plaintext []byte
@@ -219,9 +223,13 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 		}
 		aadBytes, merr := aad.MarshalBinary()
 		if merr != nil {
-			return reject(wire.ReportErrorInvalidMessage)
+			// One candidate failing to encode says nothing about the others:
+			// a draft task configured without task_info cannot build the
+			// published-draft AAD, but the Janus AAD omits the task
+			// configuration entirely and may still open. Skip, do not abort.
+			continue
 		}
-		plaintext, err = hpke.Open(task.HPKESuite, task.HPKEPrivateKey, helperInputShareInfo(), ct.Enc, aadBytes, ct.Payload)
+		plaintext, err = hpke.Open(task.HPKESuite, task.HPKEPrivateKey, helperInputShareInfo(variant), ct.Enc, aadBytes, ct.Payload)
 		if err == nil {
 			opened = true
 			break
@@ -309,6 +317,37 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 
 // buildInitJob runs aggregateInit over every report in the request and assembles
 // the job record plus the response, preserving request order.
+// buildRejectAllJob answers an aggregation job by rejecting every report with
+// the same error, without attempting any cryptography. draft-19 needs it for an
+// unrecognised verification key id (§4.5.3.2): the job itself is well formed, so
+// the Helper owes the Leader a normal AggregationJobResp rather than a problem
+// document, and the Leader may retry the reports under a key the Helper knows.
+func buildRejectAllJob(task *Task, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte, e wire.ReportError) *AggregationJob {
+	job := &AggregationJob{
+		TaskID:           task.TaskID,
+		AggregationJobID: jobID,
+		AggParam:         req.AggParam,
+		State:            JobActive,
+		LastRequestHash:  reqHash,
+	}
+	job.ReportAggs = make([]*ReportAggregation, len(req.VerifyInits))
+	resp := wire.AggregationJobResp{Variant: task.Variant, VerifyResps: make([]wire.VerifyResp, len(req.VerifyInits))}
+	for i := range req.VerifyInits {
+		reportID := req.VerifyInits[i].ReportShare.ReportMetadata.ReportID
+		vr := wire.VerifyResp{Variant: task.Variant, ReportID: reportID, Type: wire.VerifyRespReject, Error: e}
+		job.ReportAggs[i] = &ReportAggregation{
+			ReportID:       reportID,
+			Ord:            uint64(i),
+			State:          StateFailed,
+			LastVerifyResp: vr,
+			ReportError:    e,
+		}
+		resp.VerifyResps[i] = vr
+	}
+	job.Response = resp
+	return job
+}
+
 func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Variant, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
 	job := &AggregationJob{
 		TaskID:           task.TaskID,

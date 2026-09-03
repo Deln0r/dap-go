@@ -1,6 +1,10 @@
 package wire
 
-import "golang.org/x/crypto/cryptobyte"
+import (
+	"fmt"
+
+	"golang.org/x/crypto/cryptobyte"
+)
 
 // This file adds the DAP-18 TaskConfiguration family (§4.2). TaskConfiguration
 // is new in draft-18: it gives the task parameters a wire encoding so they can
@@ -29,8 +33,14 @@ type TaskExtension struct {
 }
 
 // TaskConfiguration is the wire encoding of a task's parameters (§4.2).
+//
+// Variant selects the task_info bound: draft-18 requires at least one byte
+// (opaque<1..2^8-1>) and draft-19 permits an empty value (opaque<0..2^8-1>).
+// It is set from the enclosing InputShareAad on both encode and decode; the
+// zero value is VariantDraft18, so the stricter draft-18 rule is the default.
 type TaskConfiguration struct {
-	TaskInfo          []byte // opaque<1..2^8-1>
+	Variant           Variant
+	TaskInfo          []byte // opaque<1..2^8-1> in draft-18, opaque<0..2^8-1> in draft-19
 	LeaderEndpoint    []byte // Url, opaque<1..2^16-1>
 	HelperEndpoint    []byte // Url, opaque<1..2^16-1>
 	TimePrecision     uint64
@@ -72,6 +82,16 @@ func (e *TaskExtension) UnmarshalBinary(b []byte) error { return unmarshalAll(e,
 // ---- TaskConfiguration ----
 
 func (t *TaskConfiguration) Marshal(b *cryptobyte.Builder) error {
+	// task_info is the one field whose bound moved between drafts, and it is
+	// bound into the input-share AAD, so emitting a value the peer's draft
+	// forbids fails every HPKE open with what looks like a key error. Refuse to
+	// build the bytes instead.
+	if len(t.TaskInfo) == 0 && t.Variant != VariantDraft19 {
+		return fmt.Errorf("wire: task_info must not be empty in %s", t.Variant.VersionString())
+	}
+	if len(t.TaskInfo) > 255 {
+		return fmt.Errorf("wire: task_info is %d bytes, over the 255-byte bound", len(t.TaskInfo))
+	}
 	b.AddUint8LengthPrefixed(func(child *cryptobyte.Builder) {
 		child.AddBytes(t.TaskInfo)
 	})
@@ -101,7 +121,11 @@ func (t *TaskConfiguration) Marshal(b *cryptobyte.Builder) error {
 
 func (t *TaskConfiguration) Unmarshal(s *cryptobyte.String) bool {
 	var taskInfo cryptobyte.String
-	if !s.ReadUint8LengthPrefixed(&taskInfo) || len(taskInfo) == 0 {
+	if !s.ReadUint8LengthPrefixed(&taskInfo) {
+		return false
+	}
+	// draft-18 opaque<1..2^8-1>; draft-19 relaxed the lower bound to zero.
+	if len(taskInfo) == 0 && t.Variant != VariantDraft19 {
 		return false
 	}
 	var leader, helper cryptobyte.String

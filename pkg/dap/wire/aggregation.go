@@ -1,6 +1,8 @@
 package wire
 
 import (
+	"fmt"
+
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -37,7 +39,10 @@ const (
 )
 
 // ReportError is the rejection reason carried in a rejecting VerifyResp
-// (DAP-18 §4.1).
+// (§4.1). The Go constant values are the draft-18 code points; draft-19
+// renumbered the registry, so the byte written to and read from the wire is
+// variant-dependent and goes through reportErrorToWire / reportErrorFromWire.
+// Never write a ReportError to the wire with a plain uint8 conversion.
 type ReportError uint8
 
 const (
@@ -48,12 +53,86 @@ const (
 	ReportErrorHpkeUnknownConfigID ReportError = 4
 	ReportErrorHpkeDecryptError    ReportError = 5
 	ReportErrorVdafVerifyError     ReportError = 6
-	ReportErrorTaskExpired         ReportError = 7
-	ReportErrorInvalidMessage      ReportError = 8
-	ReportErrorReportTooEarly      ReportError = 9
-	ReportErrorTaskNotStarted      ReportError = 10
-	ReportErrorOutdatedConfig      ReportError = 11
+	ReportErrorTaskExpired         ReportError = 7  // draft-18 only, deleted by draft-19 (#786)
+	ReportErrorInvalidMessage      ReportError = 8  // draft-19 code point 7
+	ReportErrorReportTooEarly      ReportError = 9  // draft-19 code point 8
+	ReportErrorTaskNotStarted      ReportError = 10 // draft-18 only, deleted by draft-19 (#786)
+	ReportErrorOutdatedConfig      ReportError = 11 // draft-18 only, deleted by draft-19 (#786)
+
+	// The two below exist only in draft-19: #784 defined an explicit
+	// unknown_verification_key_id, and unsupported_extension is a report error
+	// there. Their Go values are internal identities chosen outside the draft-18
+	// range so they can never be mistaken for a draft-18 code point; their wire
+	// values are 9 and 10 and are assigned by the tables below.
+	ReportErrorUnknownVerificationKeyID ReportError = 12
+	ReportErrorUnsupportedExtension     ReportError = 13
 )
+
+// reportError19 maps the semantic identity to its draft-19 code point.
+// draft-19 deleted task_expired, task_not_started and outdated_config as
+// "unused or redundant" (#786) and inserted unknown_verification_key_id at 9,
+// which shifted invalid_message and report_too_early down by one.
+var reportError19 = map[ReportError]uint8{
+	ReportErrorReserved:                 0,
+	ReportErrorBatchCollected:           1,
+	ReportErrorReportReplayed:           2,
+	ReportErrorReportDropped:            3,
+	ReportErrorHpkeUnknownConfigID:      4,
+	ReportErrorHpkeDecryptError:         5,
+	ReportErrorVdafVerifyError:          6,
+	ReportErrorInvalidMessage:           7,
+	ReportErrorReportTooEarly:           8,
+	ReportErrorUnknownVerificationKeyID: 9,
+	ReportErrorUnsupportedExtension:     10,
+}
+
+// reportError18 is the draft-18 registry, shared with VariantJanus. It is
+// written out rather than derived from the constants so that a decoder can
+// reject code points the draft does not define.
+var reportError18 = map[ReportError]uint8{
+	ReportErrorReserved:            0,
+	ReportErrorBatchCollected:      1,
+	ReportErrorReportReplayed:      2,
+	ReportErrorReportDropped:       3,
+	ReportErrorHpkeUnknownConfigID: 4,
+	ReportErrorHpkeDecryptError:    5,
+	ReportErrorVdafVerifyError:     6,
+	ReportErrorTaskExpired:         7,
+	ReportErrorInvalidMessage:      8,
+	ReportErrorReportTooEarly:      9,
+	ReportErrorTaskNotStarted:      10,
+	ReportErrorOutdatedConfig:      11,
+}
+
+func reportErrorTable(v Variant) map[ReportError]uint8 {
+	if v == VariantDraft19 {
+		return reportError19
+	}
+	return reportError18
+}
+
+// reportErrorToWire returns the code point for e in the variant's registry.
+// The second result is false when the variant has no code point for e, which
+// happens if a caller emits a draft-18-only error under draft-19 or the
+// reverse. That is a programming error, and Marshal turns it into a failure
+// rather than writing a byte that means something else to the peer.
+func reportErrorToWire(e ReportError, v Variant) (uint8, bool) {
+	b, ok := reportErrorTable(v)[e]
+	return b, ok
+}
+
+// reportErrorFromWire is the inverse. Unknown code points are rejected rather
+// than passed through: the same byte denotes different errors in the two
+// registries, so a permissive decode would silently mistranslate. This matches
+// how the rest of this package treats unknown enum values.
+func reportErrorFromWire(b uint8, v Variant) (ReportError, bool) {
+	for e, w := range reportErrorTable(v) {
+		if w == b {
+			return e, true
+		}
+	}
+	return 0, false
+}
 
 // ReportShare is a single aggregator's view of a report inside the aggregation
 // sub-protocol: the public metadata, the public share, and this aggregator's
@@ -93,10 +172,16 @@ type AggregationJobInitReq struct {
 	VerifyInits       []VerifyInit
 }
 
-// VerifyResp is one report's result in an AggregationJobResp (DAP-18 §4.5.3.2).
+// VerifyResp is one report's result in an AggregationJobResp (§4.5.3.2).
 // The body is selected on Type: continue carries Payload (opaque<1..2^32-1>),
 // finish carries nothing, reject carries Error.
+//
+// Variant selects the ReportError registry, which draft-19 renumbered. It is
+// set from the enclosing AggregationJobResp on both encode and decode, so it
+// only has to be filled in by a caller marshalling a bare VerifyResp; the zero
+// value is VariantDraft18, as everywhere else in this package.
 type VerifyResp struct {
+	Variant  Variant
 	ReportID ReportID
 	Type     VerifyRespType
 	Payload  []byte
@@ -104,9 +189,10 @@ type VerifyResp struct {
 }
 
 // AggregationJobResp is the Helper's response to both init and continue
-// (DAP-18 §4.5.3.2). Its entries must match the request's report IDs in order.
-// In VariantDraft18 VerifyResps has no on-wire length prefix (it is the whole
-// message body); in VariantJanus it is wrapped in a uint32 byte-length prefix.
+// (§4.5.3.2). Its entries must match the request's report IDs in order.
+// In VariantDraft18 and VariantDraft19 VerifyResps has no on-wire length prefix
+// (it is the whole message body); in VariantJanus it is wrapped in a uint32
+// byte-length prefix.
 type AggregationJobResp struct {
 	Variant     Variant
 	VerifyResps []VerifyResp
@@ -288,7 +374,11 @@ func (v *VerifyResp) Marshal(b *cryptobyte.Builder) error {
 	case VerifyRespFinish:
 		// Empty: zero bytes.
 	case VerifyRespReject:
-		b.AddUint8(uint8(v.Error))
+		code, ok := reportErrorToWire(v.Error, v.Variant)
+		if !ok {
+			return fmt.Errorf("wire: report error %d has no code point in %s", v.Error, v.Variant.VersionString())
+		}
+		b.AddUint8(code)
 	}
 	return nil
 }
@@ -319,7 +409,11 @@ func (v *VerifyResp) Unmarshal(s *cryptobyte.String) bool {
 		if !s.ReadUint8(&e) {
 			return false
 		}
-		v.Error = ReportError(e)
+		re, ok := reportErrorFromWire(e, v.Variant)
+		if !ok {
+			return false
+		}
+		v.Error = re
 	default:
 		return false
 	}
@@ -337,6 +431,7 @@ func (a *AggregationJobResp) Marshal(b *cryptobyte.Builder) error {
 		var verr error
 		b.AddUint32LengthPrefixed(func(child *cryptobyte.Builder) {
 			for i := range a.VerifyResps {
+				a.VerifyResps[i].Variant = a.Variant
 				if err := a.VerifyResps[i].Marshal(child); err != nil {
 					verr = err
 					return
@@ -345,8 +440,9 @@ func (a *AggregationJobResp) Marshal(b *cryptobyte.Builder) error {
 		})
 		return verr
 	}
-	// Draft-18: implicit-length vector, no outer prefix.
+	// Published drafts: implicit-length vector, no outer prefix.
 	for i := range a.VerifyResps {
+		a.VerifyResps[i].Variant = a.Variant
 		if err := a.VerifyResps[i].Marshal(b); err != nil {
 			return err
 		}
@@ -362,7 +458,7 @@ func (a *AggregationJobResp) Unmarshal(s *cryptobyte.String) bool {
 			return false
 		}
 		for !vresps.Empty() {
-			var vr VerifyResp
+			vr := VerifyResp{Variant: a.Variant}
 			if !vr.Unmarshal(&vresps) {
 				return false
 			}
@@ -371,7 +467,7 @@ func (a *AggregationJobResp) Unmarshal(s *cryptobyte.String) bool {
 		return true
 	}
 	for !s.Empty() {
-		var vr VerifyResp
+		vr := VerifyResp{Variant: a.Variant}
 		if !vr.Unmarshal(s) {
 			return false
 		}
@@ -390,6 +486,7 @@ func (i *InputShareAad) Marshal(b *cryptobyte.Builder) error {
 		return err
 	}
 	if i.Variant != VariantJanus {
+		i.TaskConfiguration.Variant = i.Variant
 		if err := i.TaskConfiguration.Marshal(b); err != nil {
 			return err
 		}
@@ -408,6 +505,7 @@ func (i *InputShareAad) Unmarshal(s *cryptobyte.String) bool {
 		return false
 	}
 	if i.Variant != VariantJanus {
+		i.TaskConfiguration.Variant = i.Variant
 		if !i.TaskConfiguration.Unmarshal(s) {
 			return false
 		}

@@ -87,6 +87,16 @@ type syntheticReport struct {
 
 func synthetic(t *testing.T) syntheticReport {
 	t.Helper()
+	return syntheticFor(t, wire.VariantDraft18)
+}
+
+// syntheticFor builds the same report for a given DAP version. The variant
+// selects the HPKE info string, the input-share AAD and the request encoding,
+// so a test can drive the whole Helper path under either published draft. The
+// VDAF context stays the bare CFRG vector context in both cases, since the
+// point of the fixture is intra-implementation VDAF correctness.
+func syntheticFor(t *testing.T, variant wire.Variant) syntheticReport {
+	t.Helper()
 	v := loadVector(t)
 	rep := v.Reports[0]
 
@@ -131,6 +141,7 @@ func synthetic(t *testing.T) syntheticReport {
 	}
 	task := &Task{
 		TaskID:         taskID,
+		Variant:        variant,
 		TaskConfig:     taskConfig,
 		VDAFContext:    v.Ctx,
 		VerifyKeys:     map[uint8][prio3.VerifyKeySize]byte{0: vk},
@@ -158,16 +169,17 @@ func synthetic(t *testing.T) syntheticReport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aadBytes, err := (&wire.InputShareAad{TaskID: taskID, TaskConfiguration: taskConfig, ReportMetadata: meta, PublicShare: pubShareBytes}).MarshalBinary()
+	aadBytes, err := (&wire.InputShareAad{Variant: variant, TaskID: taskID, TaskConfiguration: taskConfig, ReportMetadata: meta, PublicShare: pubShareBytes}).MarshalBinary()
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc, ct, err := hpke.Seal(rand.Reader, suite, pubKey, helperInputShareInfo(), aadBytes, pisBytes)
+	enc, ct, err := hpke.Seal(rand.Reader, suite, pubKey, helperInputShareInfo(variant), aadBytes, pisBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req := wire.AggregationJobInitReq{
+		Variant: variant,
 		VerifyInits: []wire.VerifyInit{{
 			ReportShare: wire.ReportShare{
 				ReportMetadata:      meta,

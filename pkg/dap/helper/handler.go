@@ -109,13 +109,41 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		return
 	}
 
-	var req wire.AggregationJobInitReq
+	req := wire.AggregationJobInitReq{Variant: task.Variant}
 	if err := req.UnmarshalBinary(body); err != nil {
 		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "malformed AggregationJobInitReq")
 		return
 	}
 
-	// DAP-18 §4.5.3.2 checks, in order.
+	// §4.5.3.2 checks, in order.
+	// The Leader nominates a verification key by id (§4.5.3.1); it must be one
+	// of the task's prearranged keys. The two drafts disagree on what happens
+	// when it is not: draft-18 has no code point for this case, so the job fails
+	// with a problem document, while draft-19 §4.5.3.2 says the Helper "MUST
+	// reject each report with error unknown_verification_key_id" — a normal
+	// response the Leader can retry under a key the Helper does know (§4.5.3.1).
+	vk, ok := task.VerifyKeys[req.VerificationKeyID]
+	if !ok {
+		if task.Variant != wire.VariantDraft19 {
+			h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "unknown verification_key_id")
+			return
+		}
+		reqHash := hashBody(body)
+		var jobID [16]byte
+		copy(jobID[:], reqHash[:])
+		job := buildRejectAllJob(task, jobID, &req, reqHash, wire.ReportErrorUnknownVerificationKeyID)
+		if err := h.store.PutJob(job); err != nil {
+			if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
+				h.writeResp(w, taskID, jobID, &existing.Response, http.StatusOK)
+				return
+			}
+			h.writeProblem(w, http.StatusConflict, "invalidMessage", "aggregation job already exists with different content")
+			return
+		}
+		h.writeResp(w, taskID, jobID, &job.Response, http.StatusOK)
+		return
+	}
+
 	if errName, detail, ok := validateExtensions(task, req.Extensions); !ok {
 		h.writeProblem(w, http.StatusBadRequest, errName, detail)
 		return
@@ -129,14 +157,6 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "duplicate report IDs in request")
 		return
 	}
-	// The Leader nominates a verification key by id (§4.5.3.1); it must be one
-	// of the task's prearranged keys.
-	vk, ok := task.VerifyKeys[req.VerificationKeyID]
-	if !ok {
-		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "unknown verification_key_id")
-		return
-	}
-
 	reqHash := hashBody(body)
 	var jobID [16]byte
 	copy(jobID[:], reqHash[:]) // server-selected ID derived from content (§3.2)
@@ -151,7 +171,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		return
 	}
 
-	job := buildInitJob(task, vk, wire.VariantDraft18, jobID, &req, reqHash)
+	job := buildInitJob(task, vk, task.Variant, jobID, &req, reqHash)
 	if err := h.store.PutJob(job); err != nil {
 		// Lost a race with a concurrent identical create.
 		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
@@ -178,6 +198,18 @@ func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
 	if err != nil {
 		h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "cannot read request body")
+		return
+	}
+
+	// This route speaks the Janus dialect end to end: Janus messages and the
+	// "dap-18" domain-separation strings. A draft-19 task cannot be served here,
+	// because every info string and every ReportError code point would be the
+	// wrong version, and the mismatch would surface as a decryption failure
+	// rather than as a version error. Refuse instead of guessing.
+	if task.Variant == wire.VariantDraft19 {
+		w.Header().Set("Allow", "POST, GET, DELETE")
+		h.writeProblem(w, http.StatusMethodNotAllowed, "unrecognizedMessage",
+			"this task speaks dap-19; aggregation jobs are created with POST on the collection URL")
 		return
 	}
 
@@ -399,7 +431,7 @@ func (h *Handler) handleAggregateShare(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	enc, ct, err := hpke.Seal(rand.Reader, task.CollectorHPKESuite, task.CollectorHPKEPublicKey,
-		aggregateShareInfo(), aadBytes, field.EncodeVec(agg))
+		aggregateShareInfo(task.Variant), aadBytes, field.EncodeVec(agg))
 	if err != nil {
 		h.writeProblem(w, http.StatusInternalServerError, "invalidMessage", "cannot seal aggregate share")
 		return

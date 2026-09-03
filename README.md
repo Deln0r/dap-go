@@ -28,9 +28,9 @@ Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf
 | Component | Status | Notes |
 | --- | --- | --- |
 | Prio3Count VDAF (`pkg/vdaf`) | Verified | From-scratch draft-18 stack (TurboSHAKE128, Goldilocks Field64, XOF, FLP, Prio3Count) byte-exact vs 3 positive + 4 negative CFRG vdaf-18 vectors |
-| Wire codec (`pkg/dap/wire`) | Verified | DAP-18 §4.1, §4.2, §4.4, §4.5 types in TLS presentation language; round-trip + negative tests. Dual-mode: the published draft-18 and the Janus variant (`wire.Variant`) |
+| Wire codec (`pkg/dap/wire`) | Verified | §4.1, §4.2, §4.4, §4.5 types in TLS presentation language; round-trip + negative tests. Three modes via `wire.Variant`: the published draft-18, the published draft-19, and the Janus variant |
 | HPKE layer (`internal/hpke`) | Verified | RFC 9180 Seal/Open over cloudflare/circl; tamper / wrong-key / wrong-AAD negatives |
-| Helper aggregation-init (`pkg/dap/helper`) | Verified | Prio3Count init with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. verification_key_id keyring, aggregation-job + report-extension validation, in-memory store, content-derived idempotency. Handles both the draft-18 POST-create and the Janus PUT resource models |
+| Helper aggregation-init (`pkg/dap/helper`) | Verified | Prio3Count init with ping-pong framing (vdaf §5.7.1): decrypt, decode framed initialize, combine, commit output share, framed finish response. verification_key_id keyring, aggregation-job + report-extension validation, in-memory store, content-derived idempotency. Handles both the POST-create model of the published drafts and the Janus PUT resource model. A task selects its DAP version, and draft-19's per-report `unknown_verification_key_id` rejection is implemented |
 | Helper aggregate-share (`pkg/dap/helper`) | Smoke only | Single-batch aggregate-share sealed to the Collector, built for the Janus cross-run. The general collection path (multi-batch, batch selectors, query modes) is not done |
 | Janus cross-run, Prio3Count (`scripts/janus_smoke.sh`) | Green vs `c1531764`; aggregation-only vs current | Janus plays Client + Leader + Collector, dap-go plays Helper. Complete against the pinned June build (aggregate matches). Against current Janus all reports decrypt, verify, and are accepted; the aggregate-share step needs collection-path messages that are not implemented. See [docs/interop.md](docs/interop.md) |
 | Helper continuation (POST) | Not started | Returns 501. Single-round VDAFs never reach continuation (DAP-18 §4.5.4); needed for 2-round VDAFs like Poplar1 |
@@ -94,11 +94,11 @@ Pin Janus to that commit: the smoke is verified against it, and Janus `main` has
 
 ## Dependencies
 
-- [cloudflare/circl](https://github.com/cloudflare/circl) (BSD-3) for HPKE only (RFC 9180). The Prio3 VDAF is hand-written in `pkg/vdaf`, with no crypto dependency. (circl also ships a VDAF Prio3, currently at draft-14 and with no DAP layer; dap-go targets draft-18 and keeps the VDAF hand-written and dependency-free.)
+- [cloudflare/circl](https://github.com/cloudflare/circl) (BSD-3) for HPKE only (RFC 9180). The Prio3 VDAF is hand-written in `pkg/vdaf`, with no crypto dependency. (circl also ships a VDAF Prio3, currently at draft-14 and with no DAP layer; dap-go targets the DAP protocol itself and keeps the VDAF hand-written and dependency-free.)
 - [golang.org/x/crypto/cryptobyte](https://pkg.go.dev/golang.org/x/crypto/cryptobyte) for TLS-presentation-language encoding (transitive via circl).
 - Standard library only beyond that. No CGo.
 
-Spec targeting: dap-go implements draft-ietf-ppm-dap-18 and the draft-irtf-cfrg-vdaf-18 Prio3Count it references. The vdaf VERSION byte is unchanged through the later vdaf tags, so the Prio3 crypto stays valid. The published DAP draft is now -19; its message-level changes (a dedicated `unknown_verification_key_id` error, a trimmed `ReportError` set) are future work.
+Spec targeting: dap-go implements both published drafts, draft-ietf-ppm-dap-18 and draft-ietf-ppm-dap-19, selected per task through `wire.Variant`. Draft-19 is a small delta over -18 by its own change log: it deletes three unused `ReportError` variants and adds `unknown_verification_key_id` (#786, #784), relaxes `task_info` to allow an empty value, and moves the version tag that prefixes every domain-separation string from `dap-18` to `dap-19`. It also references draft-irtf-cfrg-vdaf-20, whose `VERSION` constant is still 18, so the Prio3 crypto and the checked-in CFRG test vectors are unchanged and stay authoritative for both. Both versions ship because the only DAP peer to interoperate with, Janus, still advertises `dap-18`.
 
 ## Security posture
 

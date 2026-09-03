@@ -82,16 +82,31 @@ func TestTaskConfiguration_RoundTrip(t *testing.T) {
 }
 
 func TestTaskConfiguration_Negative(t *testing.T) {
-	// task_info must be non-empty (opaque<1..2^8-1>).
+	// task_info must be non-empty under draft-18 (opaque<1..2^8-1>). The
+	// encoder now refuses to build such a message at all, so the bytes for the
+	// decode half come from the draft-19 encoder, where the same value is legal
+	// (opaque<0..2^8-1>). One case then covers both halves of the version
+	// boundary: draft-19 produces it, draft-18 must not accept it.
 	tc := sampleTaskConfig()
 	tc.TaskInfo = nil
+	if _, err := tc.MarshalBinary(); err == nil {
+		t.Fatal("draft-18 encoder accepted an empty task_info")
+	}
+	tc.Variant = VariantDraft19
 	enc, err := tc.MarshalBinary()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("draft-19 encoder rejected an empty task_info: %v", err)
 	}
 	var dec TaskConfiguration
 	if err := dec.UnmarshalBinary(enc); err == nil {
-		t.Fatal("expected rejection of empty task_info")
+		t.Fatal("expected draft-18 rejection of empty task_info")
+	}
+	dec19 := TaskConfiguration{Variant: VariantDraft19}
+	if err := dec19.UnmarshalBinary(enc); err != nil {
+		t.Fatalf("draft-19 rejected its own empty task_info: %v", err)
+	}
+	if len(dec19.TaskInfo) != 0 {
+		t.Fatalf("task_info round-tripped as %x, want empty", dec19.TaskInfo)
 	}
 
 	// Endpoints must be non-empty (Url is opaque<1..2^16-1>).

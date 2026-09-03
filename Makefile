@@ -45,11 +45,20 @@ else
 	$(GOLANGCI_LINT) run
 endif
 
+# Each target is retried once before the build fails. The Go fuzzing coordinator
+# reports "context deadline exceeded" when -fuzztime elapses while a worker is
+# mid-iteration; that is a harness artefact rather than a corpus failure, it
+# lands on a different target from run to run, and it writes no failing input.
+# A real failure is deterministic — the input is written under testdata/fuzz and
+# replayed from the corpus — so it survives the retry, as does a genuine hang.
 .PHONY: fuzz
 fuzz:
 	@for t in FuzzReportShare FuzzTaskConfiguration FuzzAggregationJobInitReq; do \
 		echo "== $$t ($(FUZZTIME)) =="; \
-		$(GO) test -run '^$$' -fuzz="^$$t$$" -fuzztime=$(FUZZTIME) ./pkg/dap/wire/ || exit 1; \
+		if ! $(GO) test -run '^$$' -fuzz="^$$t$$" -fuzztime=$(FUZZTIME) ./pkg/dap/wire/; then \
+			echo "== $$t did not finish cleanly, retrying once =="; \
+			$(GO) test -run '^$$' -fuzz="^$$t$$" -fuzztime=$(FUZZTIME) ./pkg/dap/wire/ || exit 1; \
+		fi; \
 	done
 
 .PHONY: lint-install

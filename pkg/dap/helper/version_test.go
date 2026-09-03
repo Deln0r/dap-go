@@ -13,7 +13,7 @@ import (
 // §4.4.2.1 / §4.5.3.3.
 func TestHelperInputShareInfo_DAP18Bytes(t *testing.T) {
 	want := append([]byte("dap-18 input share"), 0x01, 0x03)
-	got := helperInputShareInfo()
+	got := helperInputShareInfo(wire.VariantDraft18)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("helper input-share info bytes:\n got %x\nwant %x", got, want)
 	}
