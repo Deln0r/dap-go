@@ -34,7 +34,19 @@ type Store interface {
 	// nil (the caller replays the stored response). If one exists with a
 	// different hash, PutJob returns ErrJobMutation.
 	PutJob(job *AggregationJob) error
+	// ClaimReportIDs records that the job (taskID, jobID) is aggregating the
+	// given report IDs, and returns the subset already claimed by a *different*
+	// job under the same task. Those are replays: DAP counts a report once per
+	// task, not once per aggregation job, so aggregating one twice inflates the
+	// collector's total silently.
+	//
+	// The claim is keyed by job ID, so a byte-identical retry of the same job
+	// reclaims its own reports and is not reported as a replay. It is atomic, so
+	// two different jobs racing with the same report cannot both win.
+	ClaimReportIDs(taskID wire.TaskID, jobID [16]byte, ids []wire.ReportID) []wire.ReportID
 	// DeleteJob removes the aggregation job under (taskID, jobID), if present.
+	// It deliberately does not release that job's report claims: releasing them
+	// would reopen the replay window for exactly the reports already counted.
 	DeleteJob(taskID wire.TaskID, jobID [16]byte)
 }
 
@@ -43,19 +55,30 @@ type jobKey struct {
 	JobID  [16]byte
 }
 
+type reportKey struct {
+	TaskID   wire.TaskID
+	ReportID wire.ReportID
+}
+
 // memStore is the in-memory Store used in v0.1. Tasks are loaded once at
 // construction and treated as immutable; jobs are guarded by a single RWMutex.
 type memStore struct {
 	mu    sync.RWMutex
 	tasks map[wire.TaskID]*Task
 	jobs  map[jobKey]*AggregationJob
+	// claims records which job first claimed each report of a task. It is the
+	// anti-replay set, and being in memory is also its limit: replay protection
+	// does not survive a restart, which the documentation states rather than
+	// implies.
+	claims map[reportKey][16]byte
 }
 
 // NewMemStore builds an in-memory store seeded with the given tasks.
 func NewMemStore(tasks ...*Task) Store {
 	m := &memStore{
-		tasks: make(map[wire.TaskID]*Task, len(tasks)),
-		jobs:  make(map[jobKey]*AggregationJob),
+		tasks:  make(map[wire.TaskID]*Task, len(tasks)),
+		jobs:   make(map[jobKey]*AggregationJob),
+		claims: make(map[reportKey][16]byte),
 	}
 	for _, t := range tasks {
 		m.tasks[t.TaskID] = t
@@ -107,6 +130,25 @@ func (m *memStore) PutJob(job *AggregationJob) error {
 	}
 	m.jobs[key] = job
 	return nil
+}
+
+func (m *memStore) ClaimReportIDs(taskID wire.TaskID, jobID [16]byte, ids []wire.ReportID) []wire.ReportID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var replayed []wire.ReportID
+	for _, id := range ids {
+		k := reportKey{TaskID: taskID, ReportID: id}
+		owner, claimed := m.claims[k]
+		switch {
+		case !claimed:
+			m.claims[k] = jobID
+		case owner != jobID:
+			replayed = append(replayed, id)
+		}
+		// owner == jobID: the same job reclaiming its own report, which is a
+		// retransmission rather than a replay.
+	}
+	return replayed
 }
 
 func (m *memStore) DeleteJob(taskID wire.TaskID, jobID [16]byte) {

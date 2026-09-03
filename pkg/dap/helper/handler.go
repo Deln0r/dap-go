@@ -171,7 +171,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 		return
 	}
 
-	job := buildInitJob(task, vk, task.Variant, jobID, &req, reqHash)
+	job := buildInitJob(task, vk, task.Variant, jobID, &req, reqHash, claimReports(h.store, taskID, jobID, &req))
 	if err := h.store.PutJob(job); err != nil {
 		// Lost a race with a concurrent identical create.
 		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
@@ -245,7 +245,7 @@ func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID
 		return
 	}
 
-	job := buildInitJob(task, vk, wire.VariantJanus, jobID, &req, reqHash)
+	job := buildInitJob(task, vk, wire.VariantJanus, jobID, &req, reqHash, claimReports(h.store, taskID, jobID, &req))
 	if err := h.store.PutJob(job); err != nil {
 		if existing, ok := h.store.GetJob(taskID, jobID); ok && existing.LastRequestHash == reqHash {
 			h.writeResp(w, taskID, jobID, &existing.Response, http.StatusOK)

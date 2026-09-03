@@ -348,7 +348,11 @@ func buildRejectAllJob(task *Task, jobID [16]byte, req *wire.AggregationJobInitR
 	return job
 }
 
-func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Variant, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte) *AggregationJob {
+// buildInitJob aggregates every report in the request. replayed names the
+// reports another job under this task has already claimed; those are rejected
+// without any cryptography, since aggregating one twice would inflate the
+// collector's total rather than fail visibly.
+func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Variant, jobID [16]byte, req *wire.AggregationJobInitReq, reqHash [32]byte, replayed map[wire.ReportID]bool) *AggregationJob {
 	job := &AggregationJob{
 		TaskID:           task.TaskID,
 		AggregationJobID: jobID,
@@ -359,12 +363,43 @@ func buildInitJob(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Variant
 	job.ReportAggs = make([]*ReportAggregation, len(req.VerifyInits))
 	resp := wire.AggregationJobResp{Variant: variant, VerifyResps: make([]wire.VerifyResp, len(req.VerifyInits))}
 	for i := range req.VerifyInits {
+		reportID := req.VerifyInits[i].ReportShare.ReportMetadata.ReportID
+		if replayed[reportID] {
+			vr := wire.VerifyResp{Variant: variant, ReportID: reportID, Type: wire.VerifyRespReject, Error: wire.ReportErrorReportReplayed}
+			job.ReportAggs[i] = &ReportAggregation{
+				ReportID:       reportID,
+				Ord:            uint64(i),
+				State:          StateFailed,
+				LastVerifyResp: vr,
+				ReportError:    wire.ReportErrorReportReplayed,
+			}
+			resp.VerifyResps[i] = vr
+			continue
+		}
 		vr, ra := aggregateInit(task, vk, variant, req.VerifyInits[i], uint64(i))
 		job.ReportAggs[i] = ra
 		resp.VerifyResps[i] = vr
 	}
 	job.Response = resp
 	return job
+}
+
+// claimReports asks the store which of the request's reports another job has
+// already taken, returning them as a set for buildInitJob.
+func claimReports(store Store, taskID wire.TaskID, jobID [16]byte, req *wire.AggregationJobInitReq) map[wire.ReportID]bool {
+	ids := make([]wire.ReportID, len(req.VerifyInits))
+	for i := range req.VerifyInits {
+		ids[i] = req.VerifyInits[i].ReportShare.ReportMetadata.ReportID
+	}
+	replayed := store.ClaimReportIDs(taskID, jobID, ids)
+	if len(replayed) == 0 {
+		return nil
+	}
+	set := make(map[wire.ReportID]bool, len(replayed))
+	for _, id := range replayed {
+		set[id] = true
+	}
+	return set
 }
 
 func hashBody(b []byte) [32]byte {
