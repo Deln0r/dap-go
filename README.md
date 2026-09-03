@@ -148,8 +148,32 @@ Spec targeting: dap-go implements both published drafts, draft-ietf-ppm-dap-18 a
 ## Security posture
 
 This code has not been audited. It is an experimental implementation, and the
-paragraphs below describe what has and has not been done about side channels so
-that anyone evaluating it can judge the risk themselves.
+paragraphs below describe what has and has not been done, so that anyone
+evaluating it can judge the risk themselves.
+
+### There is no request authentication
+
+Start here, because it is the largest gap and it is not a side channel. DAP §3.5
+makes request authentication REQUIRED for exactly the two interactions this
+Helper serves: a Leader initializing or continuing an aggregation job (§4.5), and
+a Leader obtaining an aggregate share (§4.6.4). dap-go implements neither. The
+spec leaves the scheme open — OAuth2 bearer credentials, TLS client
+certificates, or RFC 9421 HTTP message signatures are all named as acceptable —
+and this implementation has none of them.
+
+Concretely: anyone who can reach the port can create aggregation jobs and can
+trigger an aggregate-share response. The aggregate share is sealed to the
+Collector's HPKE key, so a stranger cannot read it, and reports still have to
+carry valid VDAF proofs and open under the task's HPKE key, so a stranger cannot
+inject arbitrary measurements without those. What is missing is the check on
+*who is allowed to ask at all*, and no amount of measurement validation supplies
+it: the proof establishes that a measurement is well formed, not that its sender
+is entitled to submit it.
+
+Deploy this behind something that does the authentication, or do not expose it.
+The interop harness binary in `cmd/dap-helper` is a test server and says so.
+
+### Side channels
 
 The Field64 arithmetic in `pkg/vdaf/field` is written to avoid operand-dependent
 branching: `Add`, `Sub`, `Neg`, and `Mul` use branchless reductions over
