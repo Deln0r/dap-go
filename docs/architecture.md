@@ -31,8 +31,9 @@ pkg/vdaf/flp          550 LOC   the fully-linear proof system: circuits, gadgets
 pkg/vdaf/prio3        326 LOC   Prio3Count on top of the above: shard, verify, aggregate
 internal/turboshake   200 LOC   TurboSHAKE128 (RFC 9861), the only hash primitive
 internal/hpke         158 LOC   RFC 9180 seal/open, wrapping cloudflare/circl
-pkg/dap/wire         1492 LOC   every DAP-18 message, encode and decode
-pkg/dap/helper        902 LOC   the Helper role: HTTP handler, task store, aggregation
+pkg/dap/wire         1644 LOC   every DAP message, encode and decode, draft-18 and -19
+pkg/dap/helper        992 LOC   the Helper role: HTTP handler, task store, aggregation
+integration/matrix    338 LOC   the Client role for a Matrix homeserver measuring itself
 cmd/dap-helper        246 LOC   interop harness binary (not a production server)
 ```
 
@@ -41,6 +42,39 @@ The dependency direction is strictly downward: `wire` does not import `vdaf`,
 That is deliberate. It means the codec can be fuzzed and golden-tested with no
 crypto in the picture, and the crypto can be checked against the CFRG test
 vectors with no protocol in the picture.
+
+`integration/matrix` sits above all of it and imports `wire`, `vdaf/prio3` and
+`internal/hpke` but never `helper`: it is the other end of the protocol. It is
+the only package in the tree that talks to a network peer that is not a DAP
+party, which is why it is the only one whose tests need something running.
+
+## The Client end, and why it is a Matrix homeserver
+
+The rest of this tree is the Helper role, which is one aggregator among two.
+`integration/matrix` is the opposite end: the party that has a measurement and
+wants it counted without being identified.
+
+Matrix is the case that makes the point concrete, because the ecosystem has
+already written down the problem. Synapse's usage-report documentation says that
+"while per-user statistics are not reported, homeserver server names are", so an
+operator who does not want to be named opts out and disappears from the count.
+The network's size is therefore unknown to the people running it, and the
+servers missing from the data are exactly the privacy-conscious ones. Splitting
+the measurement across two non-colluding aggregators removes the trade-off.
+
+The package is deliberately small. `Probe` reads two unauthenticated endpoints
+and returns two booleans; `Task.Report` shards the resulting 0 or 1 and seals one
+input share to each aggregator. Everything else a homeserver could report is
+either identifying or needs a privacy budget of its own, and neither belongs in a
+first integration.
+
+Its tests split along a line worth copying elsewhere. The stand-in-homeserver
+tests can only check parsing, because a stand-in agrees with whatever the code
+expects; they say so in a comment at the top of the file. The endpoint contract
+is checked by `TestLive_DendriteToAggregate` against an unmodified Dendrite,
+which CI starts on every push. `DAP_REQUIRE_LIVE=1` turns an unreachable
+homeserver into a failure rather than a skip, so that job cannot pass without
+having run.
 
 ## Following one report through the code
 

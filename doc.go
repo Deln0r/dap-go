@@ -8,6 +8,10 @@
 // test vectors. HPKE follows RFC 9180 via github.com/cloudflare/circl/hpke,
 // the only remaining circl dependency. No CGo.
 //
+// The Client end is integration/matrix, which turns a Matrix homeserver into a
+// DAP Client so a federation can count itself without any server naming itself;
+// CI drives it against an unmodified Dendrite homeserver on every push.
+//
 // A Helper-role aggregator (pkg/dap/helper) interoperates with the Janus
 // reference implementation for Prio3Count. Because Janus ships a wire format of
 // its own under the "dap-18" identifier, the wire codec (pkg/dap/wire) is
