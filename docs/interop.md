@@ -79,7 +79,7 @@ registered with the helper endpoint even though it never talks to the Helper.
 ## Prerequisites
 
 - `docker`, `jq`, `python3`
-- Go toolchain (1.25+) to build the Helper
+- Go toolchain (1.26+) to build the Helper
 - A [divviup/janus](https://github.com/divviup/janus) checkout
 
 Building the Janus images needs roughly 8 GiB available to Docker. With less,
