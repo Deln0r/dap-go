@@ -27,12 +27,35 @@ The `-s` flag adds the trailer automatically using your `git config user.name` a
 
 ## Wire format compatibility
 
-Binary protocol compatibility with [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) is non-negotiable. Any change that breaks interop with Janus, Daphne, or divviup-ts on the official interop docker harness is a regression even if all Go tests pass.
+Binary protocol compatibility with [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/), both the published -18 and -19, is non-negotiable. Any change that breaks the Janus cross-run is a regression even if every Go test passes. Janus is the peer to check against: Cloudflare archived Daphne in June 2026, and the published interop test design predates the current drafts, so Janus's in-tree interop binaries are the de-facto harness.
 
 If your change touches encoding paths:
 1. Add or extend a fixture under `testdata/fixtures/` from the CFRG VDAF test vector set or the DAP draft appendix.
 2. Verify round-trip in Go.
 3. Document any divergence (there should not be any).
+
+## Development
+
+The module requires **Go 1.26** or newer, and CI runs 1.26 and 1.27. `golang.org/x/crypto` v0.56 and later require it, and Go 1.25 left upstream support when 1.27 shipped.
+
+```bash
+make check   # gofmt check, go vet, go test -race with coverage, golangci-lint
+make fuzz    # the wire fuzz targets against the checked-in seed corpus
+```
+
+Two things are not in `make check` because they need Docker.
+
+The Matrix integration test runs against a real Dendrite homeserver, pinned by image digest:
+
+```bash
+scripts/dendrite_up.sh
+DAP_REQUIRE_LIVE=1 go test ./integration/matrix/ -run TestLive -v
+scripts/dendrite_up.sh down
+```
+
+`DAP_REQUIRE_LIVE=1` turns an unreachable homeserver into a failure instead of a skip, which is what CI sets. Without it the test skips, so a local run that prints nothing has told you nothing.
+
+The Janus cross-implementation smoke needs Janus interop images built locally; `scripts/janus_smoke.sh` and [docs/interop.md](docs/interop.md) have the recipe and what to expect from it.
 
 ## Filing issues
 
@@ -44,7 +67,7 @@ If your change touches encoding paths:
 
 - One logical change per PR.
 - Reference any related issue.
-- Run `go test ./... -race` and `golangci-lint run` before submitting.
+- Run `make check` before submitting, and `make fuzz` if you touched a decoder.
 - Be patient with review (best-effort, response within 14 days).
 
 ## Communication

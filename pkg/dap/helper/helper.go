@@ -1,5 +1,5 @@
-// Package helper implements the DAP-18 Helper-role aggregator for the
-// aggregation sub-protocol (draft-ietf-ppm-dap-18 §4.5).
+// Package helper implements the Helper-role aggregator for the DAP aggregation
+// sub-protocol (§4.5), for both published drafts. A task picks its version.
 //
 // Scope: synchronous Helper-role aggregation-job initialization for
 // Prio3Count over two aggregators, with the VDAF ping-pong message framing of
@@ -13,12 +13,12 @@
 // durable storage, and timestamp validation are deferred; see the README and
 // (non-)AGENTS.md.
 //
-// Conformance caveat: this package is dap-18 end to end, including the
-// from-scratch draft-18 Prio3 backend in pkg/vdaf/prio3 and the dap-18
-// domain-separation strings. The byte-exact tests here use the CFRG vdaf-18
-// vectors' bare context string, so they prove intra-implementation VDAF
-// correctness; a live cross-run against Janus main (the only dap-18 peer) is
-// what proves cross-implementation conformance, and is the next milestone.
+// Conformance caveat: the byte-exact tests here use the CFRG vdaf-18 vectors'
+// bare context string, so they prove intra-implementation VDAF correctness and
+// nothing about a peer. What speaks to a peer is the Janus cross-run: complete
+// against Janus c1531764 in June 2026, and reaching aggregation but not
+// collection against a current build in August. Janus is the only peer
+// available to test against. See docs/interop.md.
 package helper
 
 import (
@@ -97,7 +97,7 @@ func DAPVDAFContext(taskID wire.TaskID) []byte {
 // VerifyKey is a VDAF verification key (prio3.VerifyKeySize bytes).
 type VerifyKey = [prio3.VerifyKeySize]byte
 
-// Task is the minimal Helper-side task configuration for v0.1. It omits the
+// Task is the minimal Helper-side task configuration. It omits the
 // time_precision / task_start / task_end / tolerable_clock_skew fields of a
 // full DAP task, so the timestamp-validation gates are not enforced yet.
 type Task struct {

@@ -11,10 +11,12 @@
 # Requires: docker, jq, python3, and the janus_interop_{aggregator,client,collector}:latest
 # images (docker buildx bake janus_interop_aggregator janus_interop_client janus_interop_collector --load).
 #
-# Build those images from Janus commit c1531764 (18 Jun 2026). Janus main has
-# since been migrating toward the published draft-18 while keeping the same
-# "dap-18" version identifier, so a newer build will not match the Janus variant
-# this smoke registers. See docs/interop.md.
+# Build those images from Janus commit c1531764 (18 Jun 2026) to reproduce the
+# complete June run. A current build also works as far as aggregation: Janus now
+# sends the published draft's messages over its own resource model, and the
+# Helper tries both AAD shapes, so reports are accepted and the run stops at the
+# aggregate share, which needs collection-path messages that are not built. See
+# docs/interop.md.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -8,24 +8,24 @@ A Go-language implementation of the IETF [Distributed Aggregation Protocol](http
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)]()
 [![Janus interop](https://img.shields.io/badge/Janus%20interop-Prio3Count%20aggregation-success.svg)]()
-[![Spec](https://img.shields.io/badge/spec-draft--ietf--ppm--dap--18-7c3aed.svg)](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/)
+[![Spec](https://img.shields.io/badge/spec-dap--18%20and%20dap--19-7c3aed.svg)](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/)
 [![VDAF vectors](https://img.shields.io/badge/CFRG%20Prio3Count-byte--verified-success.svg)](https://github.com/cfrg/draft-irtf-cfrg-vdaf)
 
-> Experimental. The from-scratch Prio3 VDAF (draft-18), the DAP-18 wire codec, the HPKE layer, and a Helper-role aggregator are implemented and verified byte-for-byte against the official CFRG Prio3Count test vectors. The Helper interoperates with the Janus reference implementation: a Prio3Count cross-implementation smoke (Janus plays Client, Leader, and Collector; dap-go plays Helper) ran green end to end against Janus `c1531764`, with the aggregate converging to the expected value. Against current Janus the aggregation half still works, reports decrypt, verify, and are accepted, and the run stops at the aggregate share, which draft-18 restructured around the collection path that this project has not built. This is a single-VDAF, single-job, single-batch smoke, not a full conformance suite: the Leader role, the general collection path, and the other Prio3 instances are not done yet. Treat the [Status](#status) table as the source of truth.
+> Experimental. The from-scratch Prio3Count VDAF, the wire codec for both published DAP drafts, the HPKE layer, and a Helper-role aggregator are implemented, and the crypto is checked byte for byte against the official CFRG Prio3Count vectors. A Prio3Count smoke against Janus (Janus plays Client, Leader and Collector; dap-go plays Helper) ran end to end against Janus `c1531764` in June 2026, with the aggregate converging to the expected value. Against a current Janus build the aggregation half still works — reports decrypt, verify and are accepted — and the run stops at the aggregate share, which the draft restructured around a collection path this project has not built. That is one VDAF, one job, one batch, against one peer: a smoke, not a conformance suite. Treat the [Status](#status) table as the source of truth.
 
 ## What is DAP
 
 DAP carries encrypted measurement reports from clients to two non-colluding Aggregator servers (Leader and Helper) which run a verifiable multi-party computation to produce aggregate results without learning any individual contribution. The underlying primitives are Prio3 ([draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/)) for distributed aggregation and HPKE ([RFC 9180](https://datatracker.ietf.org/doc/rfc9180/)) for report encryption.
 
-Where it runs today, stated only as far as it can be checked: Mozilla ships a DAP **client** in Firefox ([toolkit/components/dap](https://searchfox.org/firefox-main/source/toolkit/components/dap), JavaScript and C++ over a Rust FFI), and ISRG operates [Divvi Up](https://divviup.org/) as a hosted deployment. On the **aggregator** side the field has narrowed rather than grown: Cloudflare [archived Daphne on 3 June 2026](https://github.com/cloudflare/daphne), leaving [Janus](https://github.com/divviup/janus) (Rust, ISRG) as the only actively maintained aggregator implementation. The other public codebases are [libprio-rs](https://github.com/divviup/libprio-rs) (Rust, the VDAF library rather than a deployable aggregator) and [divviup-ts](https://github.com/divviup/divviup-ts) (TypeScript client).
+Where it runs today, stated only as far as it can be checked: Mozilla ships a DAP **client** in Firefox ([toolkit/components/dap](https://searchfox.org/firefox-main/source/toolkit/components/dap), JavaScript and C++ over a Rust FFI), and ISRG operates [Divvi Up](https://divviup.org/) as a hosted deployment. On the **aggregator** side the field has narrowed rather than grown: Cloudflare [archived Daphne on 3 June 2026](https://github.com/cloudflare/daphne), leaving [Janus](https://github.com/divviup/janus) (Rust, ISRG) as the one open-source aggregator implementation still in active development. The other public codebases are [libprio-rs](https://github.com/divviup/libprio-rs) (Rust, the VDAF library rather than a deployable aggregator) and [divviup-ts](https://github.com/divviup/divviup-ts) (TypeScript client).
 
 Draft status, precisely: DAP is an Internet-Draft of the IETF PPM working group, currently [draft-19](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) in "WG Consensus: Waiting for Write-Up" and not yet an RFC. The Prio3 VDAF it builds on is an IRTF CFRG draft, currently -22, which states that it "is not endorsed by the IETF and has no formal standing in the IETF standards process". Neither is a ratified standard, and this project does not describe them as one.
 
-dap-go targets the same wire format and interop test design so that a Go-based Aggregator or Client can eventually interoperate with those implementations.
+dap-go targets the same wire format and interop test design, so a Go-based Aggregator or Client can interoperate with those implementations. The Helper has done so for Prio3Count aggregation; the boundaries are in [Conformance](#conformance-and-interop).
 
 ## Status
 
-Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/). "Verified" below means a Go round-trip plus a byte-exact check against the official CFRG `draft-irtf-cfrg-vdaf-18` Prio3Count test vectors. It does **not** yet mean cross-implementation conformance with Janus or Daphne (see [Conformance](#conformance-and-interop)).
+Target spec: [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/), both the published -18 and -19, selected per task. "Verified" below means a Go round-trip plus a byte-exact check against the official CFRG `draft-irtf-cfrg-vdaf-18` **Prio3Count** vectors. It does **not** mean cross-implementation conformance: that is bounded in [Conformance](#conformance-and-interop).
 
 | Component | Status | Notes |
 | --- | --- | --- |
@@ -46,23 +46,25 @@ Target spec: [draft-ietf-ppm-dap-18](https://datatracker.ietf.org/doc/draft-ietf
 
 ## Conformance and interop
 
-The Helper speaks dap-18 end to end: the from-scratch draft-18 Prio3 backend (`pkg/vdaf/prio3`), the version-bound HPKE info and VDAF context strings (`"dap-18" || task_id`), and the ping-pong message framing of [draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/) §5.7.1 (consume a framed initialize message, answer with a framed finish). The verifier-share contents carry the dap-18 XOF domain separation, not vdaf-14's.
+The Helper speaks one DAP version end to end per task: the from-scratch Prio3Count backend (`pkg/vdaf/prio3`), the version-bound HPKE info and VDAF context strings (`"dap-18" || task_id`, or `"dap-19"`), and the ping-pong message framing of [draft-irtf-cfrg-vdaf](https://datatracker.ietf.org/doc/draft-irtf-cfrg-vdaf/) §5.7.1 (consume a framed initialize message, answer with a framed finish). The verifier-share contents carry the dap-18 XOF domain separation, not vdaf-14's.
 
 `scripts/janus_smoke.sh` runs a cross-implementation smoke: the Janus interop containers play Client, Leader, and Collector, dap-go plays the Helper, and a Prio3Count aggregation job over a single batch converges to the expected aggregate. The only cross-implementation boundary is Leader to Helper, which is what the smoke validates.
 
-One finding from the cross-run: at the time of the smoke (June 2026) Janus main advertised `DAP_VERSION_IDENTIFIER = "dap-18"` while implementing a wire format that differed from the published draft-18 in five places: a three-field input-share AAD with no task configuration, no verification-key id, a retained partial-batch selector, a PUT resource model, and uint32-length-prefixed aggregation messages. The version identifier alone did not pin the wire format. dap-go handles both through a dual-mode codec (`pkg/dap/wire.Variant`).
+One finding from the cross-run: at the time of the smoke (June 2026) Janus main advertised `DAP_VERSION_IDENTIFIER = "dap-18"` while implementing a wire format that differed from the published draft-18 in five places: a three-field input-share AAD with no task configuration, no verification-key id, a retained partial-batch selector, a PUT resource model, and uint32-length-prefixed aggregation messages. The version identifier alone did not pin the wire format. dap-go handles both through the variant-aware codec (`pkg/dap/wire.Variant`), which now has three modes: the two published drafts and the Janus one.
 
-Janus has since converged on the published draft: its aggregation-job initialization request now carries `verification_key_id`, aggregation-job extensions replace the partial batch selector, the input-share AAD is the four-field form, and job creation is a POST returning a `Location`. The identifier stayed `"dap-18"` throughout. `VariantJanus` is therefore a snapshot of a format no current build speaks, kept for reproducing the recorded run; `VariantDraft18` is the path that targets what Janus ships today. A live re-run of the smoke against the converged Janus has not been done yet, so this section does not claim one.
+Janus has since adopted the published draft's **messages**: the initialization request carries `verification_key_id`, aggregation-job extensions replace the partial batch selector, and the input-share AAD is the four-field form. It has not adopted the published **resource model**: jobs are still created with `PUT` to a Leader-chosen URL. So a message format cannot be inferred from the HTTP method, and the Helper tries both AAD shapes and keeps whichever the sender sealed under.
+
+That re-run has been done. On 28 August 2026, against Janus `d5d523d`, all four reports decrypted, verified and were accepted, and the run stopped at the aggregate share, which needs collection-path messages this project does not implement. `VariantJanus` remains a snapshot kept for reproducing the June run; `VariantDraft18` is the path that reaches a current build. Both runs, and the exact divergence table, are recorded in [docs/interop.md](docs/interop.md).
 
 This is a single-VDAF, single-job, single-batch smoke against one peer, not a conformance suite. Full conformance, meaning all Prio3 instances, the Leader role, the general collection path, multiple query modes, and runs against the other implementations, is future work. The published [PPM WG interop test design](https://datatracker.ietf.org/doc/draft-dcook-ppm-dap-interop-test-design/) and its 2023 runner predate the current drafts, so Janus's in-tree interop binaries serve as the de-facto harness.
 
 ## Layout
 
 ```
-pkg/dap/wire     DAP-18 wire types and TLS-presentation-language codec (dual-mode: draft-18 + Janus variant)
+pkg/dap/wire     DAP wire types and TLS-presentation-language codec (draft-18, draft-19, Janus variant)
 pkg/dap/helper   Helper-role aggregator: HTTP handler + in-memory store
 pkg/dap          Package doc + cross-layer integration tests
-pkg/vdaf         From-scratch draft-18 Prio3: turboshake, field, xof, flp, prio3
+pkg/vdaf         From-scratch Prio3Count (vdaf-18): turboshake, field, xof, flp, prio3
 internal/hpke    HPKE wrappers over cloudflare/circl/hpke
 cmd/dap-helper   Helper binary used by the Janus interop smoke
 scripts/janus_smoke.sh  Janus cross-implementation smoke (Prio3Count)

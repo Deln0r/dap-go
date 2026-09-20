@@ -7,7 +7,7 @@ import (
 	"github.com/Deln0r/dap-go/pkg/dap/wire"
 )
 
-// Example_dualModeWire shows the dual-mode wire codec. The "dap-18" version
+// Example_dualModeWire shows the variant-aware wire codec. The "dap-18" version
 // identifier does not pin the wire format: the published draft-18 and the
 // format Janus implements under the same identifier differ. The caller pins the
 // variant on the value; it is not read from the bytes.

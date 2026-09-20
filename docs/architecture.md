@@ -116,9 +116,8 @@ response, while the same ID with different content is a conflict.
 ## Why the wire codec has three modes
 
 `pkg/dap/wire.Variant` exists because the string `"dap-18"` did not pin a byte
-format. The published draft-ietf-ppm-dap-18 and the format the Janus reference
-implementation shipped under the same identifier differed in five places, so the
-codec learned to speak both, with the caller pinning the variant because nothing
+format. The published draft-ietf-ppm-dap-18 and the format Janus shipped under the same
+identifier differed in five places, so the codec learned to speak both, with the caller pinning the variant because nothing
 on the wire announces it.
 
 Janus has since converged on the published draft's messages, so `VariantDraft18`
@@ -172,7 +171,7 @@ and has not been done about side channels.
 
 Each layer is checked in the way that layer can be checked:
 
-- **Crypto**: byte-exact against the official CFRG draft-18 test vectors, plus
+- **Crypto**: byte-exact against the official CFRG draft-18 Prio3Count vectors, plus
   tampered-vector negatives and decode-time robustness tests.
 - **Codec**: round-trip and golden-byte tests, plus fuzz targets asserting no
   panic and a re-encode fixed point, with a checked-in seed corpus.
