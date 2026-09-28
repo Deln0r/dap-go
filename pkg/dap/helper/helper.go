@@ -244,11 +244,7 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 		return reject(wire.ReportErrorInvalidMessage)
 	}
 
-	// Input-share validity check 7 (DAP-18 §4.5.3.4): the public and private
-	// report extensions MUST each be encoded in strictly increasing
-	// extension_type order, else the input share is invalid (invalid_message).
-	if !wire.StrictlyIncreasingExtensions(vi.ReportShare.ReportMetadata.PublicExtensions) ||
-		!wire.StrictlyIncreasingExtensions(pis.PrivateExtensions) {
+	if !validReportExtensions(vi.ReportShare.ReportMetadata.PublicExtensions, pis.PrivateExtensions) {
 		return reject(wire.ReportErrorInvalidMessage)
 	}
 
@@ -317,6 +313,26 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 
 // buildInitJob runs aggregateInit over every report in the request and assembles
 // the job record plus the response, preserving request order.
+// validReportExtensions applies the report-extension checks of §4.5.3.4, which
+// both published drafts share (steps 5-7 in draft-18, 4-6 in draft-19):
+//
+//   - an extension type the Aggregator does not recognise, in either vector,
+//     makes the input share invalid;
+//   - so does a type that appears in both the public and the private vector;
+//   - so does either vector not being in strictly increasing type order.
+//
+// All three end in invalid_message. This implementation recognises no report
+// extension type at all: the core drafts register none besides reserved(0), and
+// the taskprov taskbind extension is not implemented. So the first rule decides
+// every case by itself, and a report carrying any extension, public or private,
+// is invalid. The other two rules cannot fire while nothing is recognised, which
+// is why they are written down here rather than coded: a check that can never
+// be reached cannot be tested, and adding the first supported type is the point
+// at which both become real and have to be implemented, not assumed.
+func validReportExtensions(public, private []wire.Extension) bool {
+	return len(public) == 0 && len(private) == 0
+}
+
 // buildRejectAllJob answers an aggregation job by rejecting every report with
 // the same error, without attempting any cryptography. draft-19 needs it for an
 // unrecognised verification key id (§4.5.3.2): the job itself is well formed, so
