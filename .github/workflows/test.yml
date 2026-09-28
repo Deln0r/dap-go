@@ -31,6 +31,23 @@ jobs:
           name: coverage
           path: coverage.txt
 
+  test-386:
+    name: test (go 1.26, 386)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+      - name: go test with a 32-bit int
+        # int is 32 bits here, so a uint32 length of 2^31 or more turns negative
+        # when converted to int. The wire decoders must reject such a length, not
+        # panic; TestReadUint32LengthPrefixed_Boundaries only exercises that path
+        # on this architecture. The race detector does not exist on 386.
+        env:
+          GOARCH: "386"
+        run: go test ./...
+
   matrix-interop:
     name: matrix interop (live Dendrite)
     runs-on: ubuntu-latest
