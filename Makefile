@@ -53,7 +53,7 @@ endif
 # replayed from the corpus — so it survives the retry, as does a genuine hang.
 .PHONY: fuzz
 fuzz:
-	@for t in FuzzReportShare FuzzTaskConfiguration FuzzAggregationJobInitReq; do \
+	@for t in FuzzReportShare FuzzTaskConfiguration FuzzAggregationJobInitReq FuzzAggregationJobResp; do \
 		echo "== $$t ($(FUZZTIME)) =="; \
 		if ! $(GO) test -run '^$$' -fuzz="^$$t$$" -fuzztime=$(FUZZTIME) ./pkg/dap/wire/; then \
 			echo "== $$t did not finish cleanly, retrying once =="; \

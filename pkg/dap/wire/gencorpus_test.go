@@ -62,4 +62,25 @@ func TestGenCorpus(t *testing.T) {
 		}
 		write("FuzzAggregationJobInitReq", v.name, []string{v.sel}, enc)
 	}
+
+	for _, v := range []struct {
+		name    string
+		variant wire.Variant
+		sel     string
+	}{
+		{"seed_golden_resp_draft18", wire.VariantDraft18, `byte('\x00')`},
+		{"seed_golden_resp_janus", wire.VariantJanus, `byte('\x01')`},
+		{"seed_golden_resp_draft19", wire.VariantDraft19, `byte('\x02')`},
+	} {
+		resp := goldenResp()
+		resp.Variant = v.variant
+		resp.VerifyResps = append(resp.VerifyResps, wire.VerifyResp{
+			ReportID: wire.ReportID{0x33}, Type: wire.VerifyRespReject, Error: wire.ReportErrorInvalidMessage,
+		})
+		enc, err := resp.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		write("FuzzAggregationJobResp", v.name, []string{v.sel}, enc)
+	}
 }

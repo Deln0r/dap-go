@@ -158,3 +158,50 @@ func FuzzAggregationJobInitReq(f *testing.F) {
 		}
 	})
 }
+
+func FuzzAggregationJobResp(f *testing.F) {
+	for i, v := range []Variant{VariantDraft18, VariantJanus, VariantDraft19} {
+		resp := AggregationJobResp{
+			Variant: v,
+			VerifyResps: []VerifyResp{
+				{ReportID: ReportID{0x11}, Type: VerifyRespContinue, Payload: []byte{0xaa, 0xbb}},
+				{ReportID: ReportID{0x22}, Type: VerifyRespFinish},
+				{ReportID: ReportID{0x33}, Type: VerifyRespReject, Error: ReportErrorInvalidMessage},
+			},
+		}
+		f.Add(uint8(i), mustMarshalSeed(f, &resp))
+	}
+	f.Add(uint8(0), []byte(nil))
+
+	f.Fuzz(func(t *testing.T, variantSel uint8, data []byte) {
+		// The variant is not on the wire, and here it decides two things: whether
+		// the verify_resps vector has a length prefix, and which registry a
+		// reject's error byte is read against. Since draft-19 renumbered that
+		// registry, the same byte can be a different error under each variant.
+		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19}[int(variantSel)%3]
+		v := AggregationJobResp{Variant: variant}
+		if v.UnmarshalBinary(data) != nil {
+			return
+		}
+		// Stronger than the two-step fixed point the older targets check: a
+		// decoder that accepts its input must reproduce exactly that input, or it
+		// accepted an encoding it would never have produced.
+		enc, err := v.MarshalBinary()
+		if err != nil {
+			t.Fatalf("decoded AggregationJobResp failed to re-encode (variant=%d): %v", variant, err)
+		}
+		if !bytes.Equal(enc, data) {
+			t.Fatalf("AggregationJobResp decode is not canonical (variant=%d):\n in  %x\n out %x", variant, data, enc)
+		}
+		// A decoded rejection must name an error the variant defines. Decoding is
+		// strict today; this is what notices if it ever becomes permissive.
+		for i, vr := range v.VerifyResps {
+			if vr.Type != VerifyRespReject {
+				continue
+			}
+			if _, ok := reportErrorToWire(vr.Error, variant); !ok {
+				t.Fatalf("verify_resp %d decoded to report error %d, which variant %d does not define", i, vr.Error, variant)
+			}
+		}
+	})
+}
