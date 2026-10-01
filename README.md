@@ -175,6 +175,12 @@ is entitled to submit it.
 Deploy this behind something that does the authentication, or do not expose it.
 The interop harness binary in `cmd/dap-helper` is a test server and says so.
 
+### The task configuration is not always bound
+
+Draft-18 put the whole task configuration into the input-share AAD, so that a report can only be aggregated under the configuration its sender sealed it with: change any field by one byte and the share no longer opens. `TestAADBinding_EveryTaskConfigurationFieldIsBound` checks that for all ten fields under both published drafts.
+
+There is a gap. Because current Janus sends draft-18 messages over its older resource model, the AAD shape cannot be inferred from a request, and a task on a published draft also accepts a share sealed under the Janus AAD shape, which carries no task configuration at all. A share sealed that way opens whatever the Helper's task configuration is, so the guarantee above does not hold for it, and a configuration mismatch with such a sender goes undetected. The shape is chosen by whoever seals the share, so this does not let a Leader re-bind somebody else's report; it does mean the Helper cannot tell a sender that skipped the binding from one that honoured it. `TestKnownWeakness_JanusAADSkipsTaskConfigurationBinding` keeps the behaviour visible. The fix is to make the AAD dialect an explicit per-task setting instead of a guess.
+
 ### Side channels
 
 The Field64 arithmetic in `pkg/vdaf/field` is written to avoid operand-dependent
