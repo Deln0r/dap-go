@@ -47,6 +47,13 @@ func (c *Count) EncodeAggShare(agg []field.Elt) []byte { return field.EncodeVec(
 
 // DecodeInputShare parses an input share for the given aggregator (§7.2.7.2).
 func (c *Count) DecodeInputShare(aggID uint8, b []byte) (InputShare, error) {
+	// The encoding of an input share follows from whose share it is, so an
+	// aggregator ID outside [0, shares) has no encoding to decode against.
+	// Without this check any non-zero ID was taken as a Helper and the seed
+	// accepted, leaving the error to surface later, or not at all.
+	if aggID >= c.shares {
+		return InputShare{}, ErrAggID
+	}
 	if aggID == 0 {
 		measLen := c.f.MeasLen() * field.EncodedSize
 		proofsLen := c.f.ProofLen() * proofs * field.EncodedSize

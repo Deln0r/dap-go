@@ -182,6 +182,13 @@ func (c *Count) VerifyInit(verifyKey []byte, aggID uint8, nonce, publicShare []b
 	if int(aggID) >= int(c.shares) {
 		return nil, nil, ErrAggID
 	}
+	// The ID arrives twice: as this argument and inside the input share, where
+	// it decides how the share is expanded. The CFRG interface has it once, so
+	// the two copies must agree, or the call computes an output share and a
+	// verifier share from another aggregator's data and reports success.
+	if in.AggID != aggID {
+		return nil, nil, ErrAggID
+	}
 	measShare, proofsShare, err := c.expandInputShare(in)
 	if err != nil {
 		return nil, nil, err
