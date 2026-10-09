@@ -115,10 +115,17 @@ server's contribution; only the sum across all reporting servers is revealed.
 The server name is not merely left out of the payload, it is never read.
 
 ```go
+// Each Aggregator publishes its HPKE configurations; take the first you support.
+leader, _ := matrix.AggregatorFromConfig(leaderConfig)
+helper, _ := matrix.AggregatorFromConfig(helperConfig)
+task := &matrix.Task{TaskID: taskID, Config: taskConfig, Leader: leader, Helper: helper}
+
 m, _ := (&matrix.Probe{BaseURL: "https://matrix.example.org"}).Measure(ctx)
 report, _ := task.Report(rand.Reader, m.Count(), time.Now())
 // upload report to the Leader
 ```
+
+The package examples on pkg.go.dev run as written, including outside this module: they import nothing internal to it.
 
 Being Go is what makes this embeddable: [Dendrite](https://github.com/element-hq/dendrite),
 the Go Matrix homeserver from Element (New Vector Ltd, United Kingdom), can take

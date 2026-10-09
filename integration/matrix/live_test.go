@@ -133,11 +133,24 @@ func TestLive_DendriteToAggregate(t *testing.T) {
 		BatchMode:      wire.BatchModeTimeInterval,
 		VdafType:       wire.VdafTypePrio3Count,
 	}
+	// The client side gets its Aggregators the way an outside program must: from
+	// the HPKE configurations the Aggregators publish, through the exported
+	// constructor, not by naming the internal suite type.
+	published := func(id wire.HpkeConfigID, key []byte) matrix.Aggregator {
+		agg, err := matrix.AggregatorFromConfig(wire.HpkeConfig{
+			ID: id, KemID: wire.HpkeKemID(suite.KEM), KdfID: wire.HpkeKdfID(suite.KDF),
+			AeadID: wire.HpkeAeadID(suite.AEAD), PublicKey: key,
+		})
+		if err != nil {
+			t.Fatalf("aggregator config %d: %v", id, err)
+		}
+		return agg
+	}
 	task := &matrix.Task{
 		TaskID: taskID,
 		Config: taskConfig,
-		Leader: matrix.Aggregator{Suite: suite, ConfigID: 1, PublicKey: leaderPub},
-		Helper: matrix.Aggregator{Suite: suite, ConfigID: 2, PublicKey: helperPub},
+		Leader: published(1, leaderPub),
+		Helper: published(2, helperPub),
 	}
 
 	helperTask := &helper.Task{

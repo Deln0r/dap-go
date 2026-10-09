@@ -26,6 +26,11 @@ const numAggregators uint8 = 2
 
 // Aggregator is the public half of one Aggregator's HPKE configuration, as an
 // operator receives it from that Aggregator's HPKE config endpoint.
+//
+// Build one with AggregatorFromConfig. The Suite field's type lives in a
+// package internal to this module, so code outside it cannot write that field
+// as a literal; the constructor takes the wire.HpkeConfig the Aggregator
+// publishes, which is what a client has in hand anyway.
 type Aggregator struct {
 	Suite     hpke.Suite
 	ConfigID  wire.HpkeConfigID
