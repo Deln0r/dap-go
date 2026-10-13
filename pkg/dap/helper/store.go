@@ -69,7 +69,8 @@ type memStore struct {
 	// claims records which job first claimed each report of a task. It is the
 	// anti-replay set, and being in memory is also its limit: replay protection
 	// does not survive a restart, which the documentation states rather than
-	// implies.
+	// implies. It also never shrinks; BenchmarkClaimSetRetainedBytes measures
+	// what each claim costs to keep.
 	claims map[reportKey][16]byte
 }
 
