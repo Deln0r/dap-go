@@ -1,5 +1,5 @@
 // Package prio3 implements the Prio3Count VDAF from draft-irtf-cfrg-vdaf-18
-// (§7.2, §7.4.1) on top of the hand-written field, XOF, and FLP layers in
+// (§7.2, §7.4.1) on top of this module's own field, XOF, and FLP layers in
 // pkg/vdaf. It is byte-exact against the official CFRG Prio3Count test vectors
 // (see prio3_test.go). Only the no-joint-randomness path is implemented, which
 // is the path Prio3Count uses (JOINT_RAND_LEN == 0).

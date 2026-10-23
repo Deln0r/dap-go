@@ -31,7 +31,7 @@ func mustHex(t *testing.T, s string) []byte {
 	return b
 }
 
-// TestDeriveSeed_OfficialKAT anchors the hand-written stack (TurboSHAKE128 +
+// TestDeriveSeed_OfficialKAT anchors this module's own stack (TurboSHAKE128 +
 // XOF input layout) against the CFRG XofTurboShake128.json vector.
 func TestDeriveSeed_OfficialKAT(t *testing.T) {
 	data, err := os.ReadFile("../../../testdata/fixtures/vdaf18/XofTurboShake128.json")

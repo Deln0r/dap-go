@@ -4,7 +4,7 @@
 //
 // Scope and design are documented in README.md. The wire format follows the
 // published drafts verbatim. Prio3Count and the Field64, TurboSHAKE128, XOF and
-// FLP components under it are hand-written from scratch in pkg/vdaf, byte-exact
+// FLP components under it are written from scratch in pkg/vdaf, byte-exact
 // against the official CFRG draft-irtf-cfrg-vdaf-18 Prio3Count vectors; the
 // other Prio3 instances are not implemented. HPKE follows RFC 9180 via
 // github.com/cloudflare/circl/hpke, the only remaining circl dependency. No CGo.

@@ -10,8 +10,7 @@
 // is single-round, so every report reaches a terminal state at init and the
 // continue endpoint is never used (DAP-18 §4.5.4). The continue and
 // async-poll endpoints, the Leader role, the collection path, taskprov,
-// durable storage, and timestamp validation are deferred; see the README and
-// (non-)AGENTS.md.
+// durable storage, and timestamp validation are deferred; see the README.
 //
 // Conformance caveat: the byte-exact tests here use the CFRG vdaf-18 vectors'
 // bare context string, so they prove intra-implementation VDAF correctness and

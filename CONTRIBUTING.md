@@ -4,7 +4,7 @@ Thanks for your interest. This document explains how to contribute.
 
 ## Before you start
 
-Read [(non-)AGENTS.md](./(non-)AGENTS.md). It documents the project's authorship and tooling policy. Cryptographic and protocol code is hand-written; commits and PRs follow the same rule.
+Read [AI-USE.md](AI-USE.md). It describes how AI tools are used in this project.
 
 ## Developer Certificate of Origin (DCO)
 

@@ -2,7 +2,7 @@
 // output function over the 12-round Keccak-p[1600,12] permutation that
 // draft-irtf-cfrg-vdaf-18 uses inside XofTurboShake128.
 //
-// The implementation is hand-written from the RFC pseudocode and verified
+// The implementation is written from the RFC pseudocode and verified
 // against the RFC 9861 §5 test vectors plus the CFRG XofTurboShake128.json
 // vector. Neither golang.org/x/crypto/sha3 nor the standard library exposes
 // TurboSHAKE (their SHAKE uses the 24-round permutation and different

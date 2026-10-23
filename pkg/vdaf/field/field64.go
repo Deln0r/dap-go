@@ -3,7 +3,7 @@
 // NTT-friendly prime, Table 4).
 //
 // Elements are held as canonical uint64 representatives in [0, p). The
-// arithmetic is hand-written over math/bits primitives. Constant-time
+// arithmetic is built directly on math/bits primitives. Constant-time
 // posture: Mul/Add/Sub/Neg use branchless reductions; Inv is a fixed
 // square-and-multiply chain over the constant exponent p-2, so its timing
 // does not depend on the operand value. No claim of fiat-crypto-grade

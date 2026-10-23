@@ -148,7 +148,7 @@ scripts/dendrite_up.sh down
 
 ## Dependencies
 
-- [cloudflare/circl](https://github.com/cloudflare/circl) (BSD-3) for HPKE only (RFC 9180). The Prio3 VDAF is hand-written in `pkg/vdaf`, with no crypto dependency. (circl also ships a VDAF Prio3, currently at draft-14 and with no DAP layer; dap-go targets the DAP protocol itself and keeps the VDAF hand-written and dependency-free.)
+- [cloudflare/circl](https://github.com/cloudflare/circl) (BSD-3) for HPKE only (RFC 9180). The Prio3 VDAF is implemented from scratch in `pkg/vdaf`, with no crypto dependency. (circl also ships a VDAF Prio3, currently at draft-14 and with no DAP layer; dap-go targets the DAP protocol itself and keeps its own VDAF, free of dependencies.)
 - [golang.org/x/crypto/cryptobyte](https://pkg.go.dev/golang.org/x/crypto/cryptobyte) for TLS-presentation-language encoding (transitive via circl).
 - Standard library only beyond that. No CGo.
 
@@ -223,7 +223,7 @@ unverified.
 
 [docs/architecture.md](docs/architecture.md) is the tour for someone about to change the code: the package map, how one report flows through it, why the wire codec has two modes, and what is deliberately not built yet.
 
-Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Code style and authorship conventions are in [(non-)AGENTS.md](./(non-)AGENTS.md).
+Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). How AI is used in this project is described in [AI-USE.md](AI-USE.md).
 
 ## License
 
