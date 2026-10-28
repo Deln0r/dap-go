@@ -1,5 +1,5 @@
 // Package helper implements the Helper-role aggregator for the DAP aggregation
-// sub-protocol (§4.5), for both published drafts. A task picks its version.
+// sub-protocol (§4.5), for the published drafts -18, -19 and -20. A task picks its version.
 //
 // Scope: synchronous Helper-role aggregation-job initialization for
 // Prio3Count over two aggregators, with the VDAF ping-pong message framing of
@@ -41,10 +41,10 @@ const numAggregators uint8 = 2
 // the variant of the task they belong to. Getting the version wrong does not
 // produce a clean protocol error: the HPKE open fails and the VDAF verification
 // fails, both of which look like key problems. The published RFC will drop the
-// draft suffix ("dap-19" -> "dap"); a build targeting a draft MUST keep it.
+// draft suffix ("dap-20" -> "dap"); a build targeting a draft MUST keep it.
 
 // Role code points from the Role enum (collector(0), client(1), leader(2),
-// helper(3)). Unchanged between draft-18 and draft-19.
+// helper(3)). Unchanged from draft-18 through draft-20.
 const (
 	roleCollector uint8 = 0
 	roleClient    uint8 = 1
@@ -84,6 +84,13 @@ func DAPVDAFContextFor(v wire.Variant, taskID wire.TaskID) []byte {
 	ctx = append(ctx, version...)
 	ctx = append(ctx, taskID[:]...)
 	return ctx
+}
+
+// afterDraft18 reports whether the task speaks a published draft newer than
+// -18. Those tasks reject each report on an unknown verification key and cannot
+// use the Janus PUT route, whose messages and strings are draft-18's.
+func afterDraft18(v wire.Variant) bool {
+	return v == wire.VariantDraft19 || v == wire.VariantDraft20
 }
 
 // DAPVDAFContext is DAPVDAFContextFor pinned to draft-18. It predates the
@@ -313,7 +320,7 @@ func aggregateInit(task *Task, vk [prio3.VerifyKeySize]byte, variant wire.Varian
 // buildInitJob runs aggregateInit over every report in the request and assembles
 // the job record plus the response, preserving request order.
 // validReportExtensions applies the report-extension checks of §4.5.3.4, which
-// both published drafts share (steps 5-7 in draft-18, 4-6 in draft-19):
+// the published drafts share (steps 5-7 in draft-18, 4-6 in draft-19 and -20):
 //
 //   - an extension type the Aggregator does not recognise, in either vector,
 //     makes the input share invalid;
@@ -333,7 +340,7 @@ func validReportExtensions(public, private []wire.Extension) bool {
 }
 
 // buildRejectAllJob answers an aggregation job by rejecting every report with
-// the same error, without attempting any cryptography. draft-19 needs it for an
+// the same error, without attempting any cryptography. draft-19 and -20 need it for an
 // unrecognised verification key id (§4.5.3.2): the job itself is well formed, so
 // the Helper owes the Leader a normal AggregationJobResp rather than a problem
 // document, and the Leader may retry the reports under a key the Helper knows.

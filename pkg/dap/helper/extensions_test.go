@@ -74,7 +74,7 @@ func withReportExtensions(t *testing.T, s syntheticReport, public, private []wir
 // rejection below is about the extension and not about a broken fixture.
 func TestHelper_ReportExtensionsAreRejected(t *testing.T) {
 	one := []wire.Extension{{Type: 0x1234, Data: []byte{0x01}}}
-	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19} {
+	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19, wire.VariantDraft20} {
 		for _, tc := range []struct {
 			name          string
 			public        []wire.Extension

@@ -35,12 +35,12 @@ type TaskExtension struct {
 // TaskConfiguration is the wire encoding of a task's parameters (§4.2).
 //
 // Variant selects the task_info bound: draft-18 requires at least one byte
-// (opaque<1..2^8-1>) and draft-19 permits an empty value (opaque<0..2^8-1>).
+// (opaque<1..2^8-1>) and draft-19 and -20 permit an empty value (opaque<0..2^8-1>).
 // It is set from the enclosing InputShareAad on both encode and decode; the
 // zero value is VariantDraft18, so the stricter draft-18 rule is the default.
 type TaskConfiguration struct {
 	Variant           Variant
-	TaskInfo          []byte // opaque<1..2^8-1> in draft-18, opaque<0..2^8-1> in draft-19
+	TaskInfo          []byte // opaque<1..2^8-1> in draft-18, opaque<0..2^8-1> from draft-19
 	LeaderEndpoint    []byte // Url, opaque<1..2^16-1>
 	HelperEndpoint    []byte // Url, opaque<1..2^16-1>
 	TimePrecision     uint64
@@ -86,7 +86,7 @@ func (t *TaskConfiguration) Marshal(b *cryptobyte.Builder) error {
 	// bound into the input-share AAD, so emitting a value the peer's draft
 	// forbids fails every HPKE open with what looks like a key error. Refuse to
 	// build the bytes instead.
-	if len(t.TaskInfo) == 0 && t.Variant != VariantDraft19 {
+	if len(t.TaskInfo) == 0 && !t.Variant.draft19Values() {
 		return fmt.Errorf("wire: task_info must not be empty in %s", t.Variant.VersionString())
 	}
 	if len(t.TaskInfo) > 255 {
@@ -124,8 +124,9 @@ func (t *TaskConfiguration) Unmarshal(s *cryptobyte.String) bool {
 	if !s.ReadUint8LengthPrefixed(&taskInfo) {
 		return false
 	}
-	// draft-18 opaque<1..2^8-1>; draft-19 relaxed the lower bound to zero.
-	if len(taskInfo) == 0 && t.Variant != VariantDraft19 {
+	// draft-18 opaque<1..2^8-1>; draft-19 relaxed the lower bound to zero and
+	// draft-20 kept it.
+	if len(taskInfo) == 0 && !t.Variant.draft19Values() {
 		return false
 	}
 	var leader, helper cryptobyte.String

@@ -10,7 +10,8 @@ import (
 // code points as published. draft-18 §4.1 numbers them 0..11; draft-19 deleted
 // task_expired, task_not_started and outdated_config as unused or redundant
 // (#786) and inserted unknown_verification_key_id at 9 (#784), which moved
-// invalid_message and report_too_early down by one.
+// invalid_message and report_too_early down by one. draft-20 kept the draft-19
+// registry unchanged.
 func TestReportError_RegistriesMatchTheDrafts(t *testing.T) {
 	for _, tc := range []struct {
 		variant Variant
@@ -23,6 +24,12 @@ func TestReportError_RegistriesMatchTheDrafts(t *testing.T) {
 			ReportErrorReportTooEarly: 9, ReportErrorTaskNotStarted: 10, ReportErrorOutdatedConfig: 11,
 		}},
 		{VariantDraft19, map[ReportError]uint8{
+			ReportErrorReserved: 0, ReportErrorBatchCollected: 1, ReportErrorReportReplayed: 2,
+			ReportErrorReportDropped: 3, ReportErrorHpkeUnknownConfigID: 4, ReportErrorHpkeDecryptError: 5,
+			ReportErrorVdafVerifyError: 6, ReportErrorInvalidMessage: 7, ReportErrorReportTooEarly: 8,
+			ReportErrorUnknownVerificationKeyID: 9, ReportErrorUnsupportedExtension: 10,
+		}},
+		{VariantDraft20, map[ReportError]uint8{
 			ReportErrorReserved: 0, ReportErrorBatchCollected: 1, ReportErrorReportReplayed: 2,
 			ReportErrorReportDropped: 3, ReportErrorHpkeUnknownConfigID: 4, ReportErrorHpkeDecryptError: 5,
 			ReportErrorVdafVerifyError: 6, ReportErrorInvalidMessage: 7, ReportErrorReportTooEarly: 8,
@@ -167,6 +174,9 @@ func TestAggregationJobResp_GoldenRejectBytes(t *testing.T) {
 	}
 	if !bytes.Equal(got18[:len(got18)-1], got19[:len(got19)-1]) {
 		t.Fatal("the two encodings differ before the error byte; draft-19 changed only the registry")
+	}
+	if got20 := build(VariantDraft20); !bytes.Equal(got20, got19) {
+		t.Fatalf("draft-20 bytes = %x, want the draft-19 bytes %s; draft-20 kept the registry", got20, want19)
 	}
 
 	// Decoding each under the other draft's registry must not silently produce

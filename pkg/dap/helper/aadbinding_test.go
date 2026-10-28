@@ -109,7 +109,7 @@ var taskConfigMutations = []struct {
 // unchanged configuration must be accepted, so that every rejection below is
 // about the field that changed and not about the fixture.
 func TestAADBinding_EveryTaskConfigurationFieldIsBound(t *testing.T) {
-	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19} {
+	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19, wire.VariantDraft20} {
 		t.Run(variant.VersionString()+"/unchanged (control)", func(t *testing.T) {
 			s := syntheticFor(t, variant)
 			vr := submit(t, s.Task, sealUnder(t, s, variant, s.Task.TaskConfig))
@@ -160,7 +160,7 @@ func TestAADBinding_EveryTaskConfigurationFieldIsBound(t *testing.T) {
 // only make acceptance stricter, and current Janus builds rely on it because
 // they send draft-18 messages over the PUT route.
 func TestKnownWeakness_JanusAADSkipsTaskConfigurationBinding(t *testing.T) {
-	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19} {
+	for _, variant := range []wire.Variant{wire.VariantDraft18, wire.VariantDraft19, wire.VariantDraft20} {
 		// The client's configuration plays no part in a Janus-shaped AAD; it is
 		// passed only because the argument exists.
 		t.Run(variant.VersionString()+"/same configuration", func(t *testing.T) {

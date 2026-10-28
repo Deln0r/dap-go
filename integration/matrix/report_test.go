@@ -50,6 +50,7 @@ func TestTask_VDAFContextFollowsTheVersion(t *testing.T) {
 	}{
 		{wire.VariantDraft18, "dap-18"},
 		{wire.VariantDraft19, "dap-19"},
+		{wire.VariantDraft20, "dap-20"},
 	} {
 		task := testTask(t, tc.variant)
 		ctx := task.VDAFContext()

@@ -59,7 +59,7 @@ const (
 	ReportErrorTaskNotStarted      ReportError = 10 // draft-18 only, deleted by draft-19 (#786)
 	ReportErrorOutdatedConfig      ReportError = 11 // draft-18 only, deleted by draft-19 (#786)
 
-	// The two below exist only in draft-19: #784 defined an explicit
+	// The two below exist from draft-19 on: #784 defined an explicit
 	// unknown_verification_key_id, and unsupported_extension is a report error
 	// there. Their Go values are internal identities chosen outside the draft-18
 	// range so they can never be mistaken for a draft-18 code point; their wire
@@ -71,7 +71,8 @@ const (
 // reportError19 maps the semantic identity to its draft-19 code point.
 // draft-19 deleted task_expired, task_not_started and outdated_config as
 // "unused or redundant" (#786) and inserted unknown_verification_key_id at 9,
-// which shifted invalid_message and report_too_early down by one.
+// which shifted invalid_message and report_too_early down by one. draft-20 kept
+// the registry unchanged.
 var reportError19 = map[ReportError]uint8{
 	ReportErrorReserved:                 0,
 	ReportErrorBatchCollected:           1,
@@ -105,7 +106,7 @@ var reportError18 = map[ReportError]uint8{
 }
 
 func reportErrorTable(v Variant) map[ReportError]uint8 {
-	if v == VariantDraft19 {
+	if v.draft19Values() {
 		return reportError19
 	}
 	return reportError18

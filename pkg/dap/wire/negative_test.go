@@ -55,7 +55,9 @@ func negativeCases() []negativeCase {
 	tc18 := sampleTaskConfig()
 	tc19 := sampleTaskConfig()
 	tc19.Variant = VariantDraft19
-	tc19.TaskInfo = nil // legal only in draft-19
+	tc19.TaskInfo = nil // legal from draft-19 on
+	tc20 := tc19
+	tc20.Variant = VariantDraft20
 	resps := func(v Variant) []VerifyResp {
 		return []VerifyResp{
 			{Variant: v, ReportID: rs.ReportMetadata.ReportID, Type: VerifyRespContinue, Payload: []byte{0x01}},
@@ -85,6 +87,8 @@ func negativeCases() []negativeCase {
 		{name: "TaskConfiguration/dap-18", sample: &tc18, fresh: func() codec { return new(TaskConfiguration) }},
 		{name: "TaskConfiguration/dap-19 empty task_info", sample: &tc19,
 			fresh: func() codec { return &TaskConfiguration{Variant: VariantDraft19} }},
+		{name: "TaskConfiguration/dap-20 empty task_info", sample: &tc20,
+			fresh: func() codec { return &TaskConfiguration{Variant: VariantDraft20} }},
 		{name: "PartialBatchSelector", sample: &PartialBatchSelector{BatchMode: 1, Config: []byte{0x01}},
 			fresh: func() codec { return new(PartialBatchSelector) }},
 		{name: "AggregationJobExtension", sample: &aggExt, fresh: func() codec { return new(AggregationJobExtension) }},
@@ -101,7 +105,7 @@ func negativeCases() []negativeCase {
 		{name: "AggregateShare", sample: &AggregateShare{EncryptedAggregateShare: ct}, fresh: func() codec { return new(AggregateShare) }},
 	}
 
-	for _, v := range []Variant{VariantDraft18, VariantJanus, VariantDraft19} {
+	for _, v := range []Variant{VariantDraft18, VariantJanus, VariantDraft19, VariantDraft20} {
 		v := v
 		published := v != VariantJanus
 		init := AggregationJobInitReq{Variant: v, VerifyInits: []VerifyInit{vi1, vi2}}

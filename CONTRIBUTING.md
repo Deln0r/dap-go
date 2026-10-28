@@ -27,7 +27,7 @@ The `-s` flag adds the trailer automatically using your `git config user.name` a
 
 ## Wire format compatibility
 
-Binary protocol compatibility with [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/), both the published -18 and -19, is non-negotiable. Any change that breaks the Janus cross-run is a regression even if every Go test passes. Janus is the peer to check against: Cloudflare archived Daphne in June 2026, and the published interop test design predates the current drafts, so Janus's in-tree interop binaries are the de-facto harness.
+Binary protocol compatibility with [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/), the published -18, -19 and -20, is non-negotiable. Any change that breaks the Janus cross-run is a regression even if every Go test passes. Janus is the peer to check against: Cloudflare archived Daphne in June 2026, and the published interop test design predates the current drafts, so Janus's in-tree interop binaries are the de-facto harness.
 
 If your change touches encoding paths:
 1. Add or extend a fixture under `testdata/fixtures/` from the CFRG VDAF test vector set or the DAP draft appendix.

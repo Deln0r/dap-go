@@ -108,6 +108,16 @@ func TestTaskConfiguration_Negative(t *testing.T) {
 	if len(dec19.TaskInfo) != 0 {
 		t.Fatalf("task_info round-tripped as %x, want empty", dec19.TaskInfo)
 	}
+	// draft-20 kept the draft-19 bound.
+	tc.Variant = VariantDraft20
+	enc20, err := tc.MarshalBinary()
+	if err != nil {
+		t.Fatalf("draft-20 encoder rejected an empty task_info: %v", err)
+	}
+	dec20 := TaskConfiguration{Variant: VariantDraft20}
+	if err := dec20.UnmarshalBinary(enc20); err != nil {
+		t.Fatalf("draft-20 rejected its own empty task_info: %v", err)
+	}
 
 	// Endpoints must be non-empty (Url is opaque<1..2^16-1>).
 	tc2 := sampleTaskConfig()

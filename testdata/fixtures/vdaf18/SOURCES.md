@@ -12,8 +12,9 @@ none contains a wire-breaking change (-20 is a single editorial item from the
 Crypto Review Panel, -21 is idnits and reference housekeeping, -22 is shepherd
 feedback on the introduction), so these vectors remain authoritative for every
 draft from -18 to -22, verified in each document's own change log. That
-matters for DAP: draft-ietf-ppm-dap-19 references vdaf-20, so the DAP version
-bump does not touch the crypto and these files pin dap-18 and dap-19 alike.
+matters for DAP: draft-ietf-ppm-dap-19 references vdaf-20 and draft-20
+references vdaf-22, so neither DAP version bump touches the crypto and these
+files pin dap-18, dap-19 and dap-20 alike.
 
 ## Files
 

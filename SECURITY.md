@@ -15,7 +15,7 @@ You should expect an initial response within 7 days. If we cannot resolve the is
 
 In scope:
 
-- Protocol-level deviations from [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) -18 or -19 that affect privacy or correctness of aggregation.
+- Protocol-level deviations from [draft-ietf-ppm-dap](https://datatracker.ietf.org/doc/draft-ietf-ppm-dap/) -18, -19 or -20 that affect privacy or correctness of aggregation.
 - Memory safety, panics on adversarial input, denial of service in the Helper or Client.
 - Misuse of HPKE keys or nonces, and anything that lets one report be counted more than once or attributed to its sender.
 - Side-channel issues introduced in our code (Prio3 timing properties depend on `cloudflare/circl`; bugs there should be reported upstream).

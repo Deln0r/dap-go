@@ -90,10 +90,10 @@ func FuzzTaskConfiguration(f *testing.F) {
 	f.Add([]byte{0x00})
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		// Both published drafts, since draft-19 relaxed the task_info lower
+		// Every published draft, since draft-19 relaxed the task_info lower
 		// bound: whatever a variant accepts, it must re-encode to the same bytes
 		// under that same variant.
-		for _, variant := range []Variant{VariantDraft18, VariantDraft19} {
+		for _, variant := range []Variant{VariantDraft18, VariantDraft19, VariantDraft20} {
 			v := TaskConfiguration{Variant: variant}
 			if v.UnmarshalBinary(data) != nil {
 				continue
@@ -136,7 +136,7 @@ func FuzzAggregationJobInitReq(f *testing.F) {
 	f.Fuzz(func(t *testing.T, variantSel uint8, data []byte) {
 		// The variant is not on the wire: callers pin it before decoding, so the
 		// fuzzer picks one and keeps it consistent across the re-decode.
-		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19}[int(variantSel)%3]
+		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19, VariantDraft20}[int(variantSel)%4]
 		v := AggregationJobInitReq{Variant: variant}
 		if v.UnmarshalBinary(data) != nil {
 			return
@@ -160,7 +160,7 @@ func FuzzAggregationJobInitReq(f *testing.F) {
 }
 
 func FuzzAggregationJobResp(f *testing.F) {
-	for i, v := range []Variant{VariantDraft18, VariantJanus, VariantDraft19} {
+	for i, v := range []Variant{VariantDraft18, VariantJanus, VariantDraft19, VariantDraft20} {
 		resp := AggregationJobResp{
 			Variant: v,
 			VerifyResps: []VerifyResp{
@@ -178,7 +178,7 @@ func FuzzAggregationJobResp(f *testing.F) {
 		// the verify_resps vector has a length prefix, and which registry a
 		// reject's error byte is read against. Since draft-19 renumbered that
 		// registry, the same byte can be a different error under each variant.
-		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19}[int(variantSel)%3]
+		variant := []Variant{VariantDraft18, VariantJanus, VariantDraft19, VariantDraft20}[int(variantSel)%4]
 		v := AggregationJobResp{Variant: variant}
 		if v.UnmarshalBinary(data) != nil {
 			return

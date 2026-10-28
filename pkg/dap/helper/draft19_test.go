@@ -49,9 +49,16 @@ func TestDraft19_DomainSeparationStrings(t *testing.T) {
 // as a draft-19 request. It must reach the same terminal state as the draft-18
 // path, which is what makes the port real rather than declarative.
 func TestDraft19_EndToEnd(t *testing.T) {
-	s := syntheticFor(t, wire.VariantDraft19)
-	if s.Task.Variant != wire.VariantDraft19 {
-		t.Fatal("fixture did not carry the draft-19 variant")
+	checkEndToEnd(t, wire.VariantDraft19)
+}
+
+// checkEndToEnd posts the fixture's report as a task of the given published
+// draft and checks it reaches the framed finish with the CFRG output share.
+func checkEndToEnd(t *testing.T, v wire.Variant) {
+	t.Helper()
+	s := syntheticFor(t, v)
+	if s.Task.Variant != v {
+		t.Fatalf("fixture did not carry the %s variant", v.VersionString())
 	}
 	h := NewHandler(NewMemStore(s.Task))
 
@@ -60,7 +67,7 @@ func TestDraft19_EndToEnd(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 
-	resp := wire.AggregationJobResp{Variant: wire.VariantDraft19}
+	resp := wire.AggregationJobResp{Variant: v}
 	if err := resp.UnmarshalBinary(rec.Body.Bytes()); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -94,18 +101,24 @@ func TestDraft19_EndToEnd(t *testing.T) {
 // fail to open. Without this, TestDraft19_EndToEnd would pass just as happily
 // if the version string were ignored altogether.
 func TestDraft19_VersionIsLoadBearing(t *testing.T) {
-	s := syntheticFor(t, wire.VariantDraft19)
+	checkSealVersionRejected(t, wire.VariantDraft19, wire.VariantDraft18)
+}
 
-	// Re-seal the same plaintext under the draft-18 info string, changing
-	// nothing else, and check the Helper now rejects the report.
+// checkSealVersionRejected re-seals the fixture's report under the info string
+// of version seal, changing nothing else, and checks a task of version task
+// rejects it as an HPKE failure.
+func checkSealVersionRejected(t *testing.T, task, seal wire.Variant) {
+	t.Helper()
+	s := syntheticFor(t, task)
+
 	plaintext, aad := resealInputs(t, s)
 	enc, ct, err := hpke.Seal(rand.Reader, s.Task.HPKESuite, s.Task.HPKEPublicKey,
-		helperInputShareInfo(wire.VariantDraft18), aad, plaintext)
+		helperInputShareInfo(seal), aad, plaintext)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	req := wire.AggregationJobInitReq{Variant: wire.VariantDraft19}
+	req := wire.AggregationJobInitReq{Variant: task}
 	if err := req.UnmarshalBinary(s.ReqBytes); err != nil {
 		t.Fatal(err)
 	}
@@ -121,13 +134,14 @@ func TestDraft19_VersionIsLoadBearing(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	resp := wire.AggregationJobResp{Variant: wire.VariantDraft19}
+	resp := wire.AggregationJobResp{Variant: task}
 	if err := resp.UnmarshalBinary(rec.Body.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 	vr := resp.VerifyResps[0]
 	if vr.Type != wire.VerifyRespReject {
-		t.Fatal("a draft-18 seal opened against a draft-19 task: the version string is not being used")
+		t.Fatalf("a %s seal opened against a %s task: the version string is not being used",
+			seal.VersionString(), task.VersionString())
 	}
 	if vr.Error != wire.ReportErrorHpkeDecryptError {
 		t.Fatalf("error = %d, want hpke_decrypt_error", vr.Error)
@@ -148,6 +162,7 @@ func TestDraft19_UnknownVerificationKeyRejectsEachReport(t *testing.T) {
 	}{
 		{"draft-18 fails the job", wire.VariantDraft18, http.StatusBadRequest},
 		{"draft-19 rejects each report", wire.VariantDraft19, http.StatusOK},
+		{"draft-20 rejects each report", wire.VariantDraft20, http.StatusOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := syntheticFor(t, tc.variant)
@@ -245,6 +260,8 @@ func TestDraft19_VDAFContextIsVersionBound(t *testing.T) {
 		{"draft-18 both sides", wire.VariantDraft18, wire.VariantDraft18, true},
 		{"client on draft-18, task on draft-19", wire.VariantDraft19, wire.VariantDraft18, false},
 		{"client on draft-19, task on draft-18", wire.VariantDraft18, wire.VariantDraft19, false},
+		{"draft-20 both sides", wire.VariantDraft20, wire.VariantDraft20, true},
+		{"client on draft-19, task on draft-20", wire.VariantDraft20, wire.VariantDraft19, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := syntheticFor(t, tc.taskCtxVer)
@@ -340,21 +357,22 @@ func TestDraft19_VDAFContextIsVersionBound(t *testing.T) {
 // domain separation end to end, so a draft-19 task served there would fail as a
 // decryption error. The Helper must refuse the route instead.
 func TestDraft19_JanusPutRouteRefused(t *testing.T) {
-	s := syntheticFor(t, wire.VariantDraft19)
-	h := NewHandler(NewMemStore(s.Task))
-
 	var jobID [16]byte
 	jobID[0] = 1
-	r := httptest.NewRequest(http.MethodPut, jobURL(s.Task, jobID), bytes.NewReader(s.ReqBytes))
-	r.Header.Set("Content-Type", mediaInitReq)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, r)
+	for _, v := range []wire.Variant{wire.VariantDraft19, wire.VariantDraft20} {
+		s := syntheticFor(t, v)
+		h := NewHandler(NewMemStore(s.Task))
+		r := httptest.NewRequest(http.MethodPut, jobURL(s.Task, jobID), bytes.NewReader(s.ReqBytes))
+		r.Header.Set("Content-Type", mediaInitReq)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
 
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405; body=%s", rec.Code, rec.Body.String())
-	}
-	if _, ok := h.store.GetJob(s.Task.TaskID, jobID); ok {
-		t.Fatal("a job was stored for a route the Helper refused")
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s: status = %d, want 405; body=%s", v.VersionString(), rec.Code, rec.Body.String())
+		}
+		if _, ok := h.store.GetJob(s.Task.TaskID, jobID); ok {
+			t.Fatalf("%s: a job was stored for a route the Helper refused", v.VersionString())
+		}
 	}
 
 	// The same route must keep working for a draft-18 task, or this guard has

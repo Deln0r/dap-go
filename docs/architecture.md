@@ -31,7 +31,7 @@ pkg/vdaf/flp          550 LOC   the fully-linear proof system: circuits, gadgets
 pkg/vdaf/prio3        326 LOC   Prio3Count on top of the above: shard, verify, aggregate
 internal/turboshake   200 LOC   TurboSHAKE128 (RFC 9861), the only hash primitive
 internal/hpke         158 LOC   RFC 9180 seal/open, wrapping cloudflare/circl
-pkg/dap/wire         1644 LOC   every DAP message, encode and decode, draft-18 and -19
+pkg/dap/wire         1644 LOC   every DAP message, encode and decode, draft-18 to -20
 pkg/dap/helper        992 LOC   the Helper role: HTTP handler, task store, aggregation
 integration/matrix    338 LOC   the Client role for a Matrix homeserver measuring itself
 cmd/dap-helper        246 LOC   interop harness binary (not a production server)
@@ -113,7 +113,7 @@ Job creation is idempotent by construction: the job ID is `sha256(body)[:16]`,
 so a byte-identical retry lands on the same resource and replays the stored
 response, while the same ID with different content is a conflict.
 
-## Why the wire codec has three modes
+## Why the wire codec has four modes
 
 `pkg/dap/wire.Variant` exists because the string `"dap-18"` did not pin a byte
 format. The published draft-ietf-ppm-dap-18 and the format Janus shipped under the same
@@ -131,14 +131,21 @@ keeping straight when reading the codecs. Janus differs from draft-18 in message
 *structure*; draft-19 does not differ from draft-18 in structure at all. What it
 changes is version-bound *values*:
 
-| | draft-18 | draft-19 |
-|---|---|---|
-| Version tag in every domain-separation string | `dap-18` | `dap-19` |
-| `ReportError` for `invalid_message` | 8 | 7 |
-| `unknown_verification_key_id` | absent | 9 |
-| `task_expired`, `task_not_started`, `outdated_config` | 7, 10, 11 | deleted |
-| `task_info` | `opaque<1..2^8-1>` | `opaque<0..2^8-1>` |
-| Unknown `verification_key_id` | job fails with a problem document | every report is rejected with `unknown_verification_key_id` |
+| | draft-18 | draft-19 | draft-20 |
+|---|---|---|---|
+| Version tag in every domain-separation string | `dap-18` | `dap-19` | `dap-20` |
+| `ReportError` for `invalid_message` | 8 | 7 | 7 |
+| `unknown_verification_key_id` | absent | 9 | 9 |
+| `task_expired`, `task_not_started`, `outdated_config` | 7, 10, 11 | deleted | deleted |
+| `task_info` | `opaque<1..2^8-1>` | `opaque<0..2^8-1>` | `opaque<0..2^8-1>` |
+| Unknown `verification_key_id` | job fails with a problem document | every report is rejected with `unknown_verification_key_id` | as draft-19 |
+
+`VariantDraft20` changes only the version tag. Draft-20's other two changes do
+not reach the Helper's wire: resource IDs became opaque strings (#794), and the
+Helper mints the IDs of the aggregation jobs it creates (the published
+aggregate-share interaction is not implemented), and the leader-selected
+collection query gained an
+idempotency key (#798), which only the Collector and the Leader exchange.
 
 That split is why every structural branch in the codec tests against
 `VariantJanus` rather than for `VariantDraft18`: a new published draft then
@@ -149,11 +156,11 @@ denotes different errors in the two registries — byte 7 is `task_expired` unde
 draft-18 and `invalid_message` under draft-19 — so a version-blind decoder would
 silently report the wrong rejection reason rather than fail.
 
-draft-19 also references draft-irtf-cfrg-vdaf-20, whose `VERSION` constant is
-still 18. The Prio3 crypto is therefore unchanged and the checked-in CFRG
-vectors stay authoritative for both DAP versions, which is what
-`TestDraft19_EndToEnd` asserts by committing the same reference output share
-under the new version.
+draft-19 references draft-irtf-cfrg-vdaf-20 and draft-20 references vdaf-22,
+and the `VERSION` constant is still 18 in both. The Prio3 crypto is therefore
+unchanged and the checked-in CFRG vectors stay authoritative for all three DAP
+versions, which is what `TestDraft19_EndToEnd` and `TestDraft20_EndToEnd` assert
+by committing the same reference output share under each version.
 
 ## What is deliberately not here
 

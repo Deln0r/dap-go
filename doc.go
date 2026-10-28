@@ -1,6 +1,6 @@
 // Package dap is a Go-language implementation of the IETF Privacy-Preserving
-// Measurement (PPM) Distributed Aggregation Protocol, draft-ietf-ppm-dap-18 and
-// draft-ietf-ppm-dap-19.
+// Measurement (PPM) Distributed Aggregation Protocol, draft-ietf-ppm-dap-18, -19
+// and -20.
 //
 // Scope and design are documented in README.md. The wire format follows the
 // published drafts verbatim. Prio3Count and the Field64, TurboSHAKE128, XOF and
@@ -17,6 +17,6 @@
 // A Helper-role aggregator (pkg/dap/helper) interoperates with the Janus
 // implementation for Prio3Count. Because Janus ships a wire format of
 // its own under the "dap-18" identifier, the wire codec (pkg/dap/wire) is
-// multi-mode: it encodes the published draft-18, the published draft-19, and
-// the Janus variant, and the caller pins which one a task speaks.
+// multi-mode: it encodes the published draft-18, -19 and -20 and the Janus
+// variant, and the caller pins which one a task speaks.
 package dap

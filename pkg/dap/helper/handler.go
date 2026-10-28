@@ -117,14 +117,15 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, taskID wi
 
 	// §4.5.3.2 checks, in order.
 	// The Leader nominates a verification key by id (§4.5.3.1); it must be one
-	// of the task's prearranged keys. The two drafts disagree on what happens
-	// when it is not: draft-18 has no code point for this case, so the job fails
-	// with a problem document, while draft-19 §4.5.3.2 says the Helper "MUST
-	// reject each report with error unknown_verification_key_id" — a normal
-	// response the Leader can retry under a key the Helper does know (§4.5.3.1).
+	// of the task's prearranged keys. The drafts disagree on what happens when
+	// it is not: draft-18 has no code point for this case, so the job fails
+	// with a problem document, while draft-19 and draft-20 §4.5.3.2 say the
+	// Helper "MUST reject each report with error unknown_verification_key_id" —
+	// a normal response the Leader can retry under a key the Helper does know
+	// (§4.5.3.1).
 	vk, ok := task.VerifyKeys[req.VerificationKeyID]
 	if !ok {
-		if task.Variant != wire.VariantDraft19 {
+		if !afterDraft18(task.Variant) {
 			h.writeProblem(w, http.StatusBadRequest, "invalidMessage", "unknown verification_key_id")
 			return
 		}
@@ -202,14 +203,14 @@ func (h *Handler) handleJanusInit(w http.ResponseWriter, r *http.Request, taskID
 	}
 
 	// This route speaks the Janus dialect end to end: Janus messages and the
-	// "dap-18" domain-separation strings. A draft-19 task cannot be served here,
-	// because every info string and every ReportError code point would be the
-	// wrong version, and the mismatch would surface as a decryption failure
-	// rather than as a version error. Refuse instead of guessing.
-	if task.Variant == wire.VariantDraft19 {
+	// "dap-18" domain-separation strings. A draft-19 or draft-20 task cannot be
+	// served here, because every info string and every ReportError code point
+	// would be the wrong version, and the mismatch would surface as a decryption
+	// failure rather than as a version error. Refuse instead of guessing.
+	if afterDraft18(task.Variant) {
 		w.Header().Set("Allow", "POST, GET, DELETE")
 		h.writeProblem(w, http.StatusMethodNotAllowed, "unrecognizedMessage",
-			"this task speaks dap-19; aggregation jobs are created with POST on the collection URL")
+			"this task speaks "+task.Variant.VersionString()+"; aggregation jobs are created with POST on the collection URL")
 		return
 	}
 
